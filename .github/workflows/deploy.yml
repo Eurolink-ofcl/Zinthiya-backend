@@ -1,0 +1,30 @@
+name: Auto Deploy Backend to VPS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          script: |
+            cd /var/www/bloodme_in_usr/data/www/astro.bloodme.in/api/zinthiya-backend
+            echo "📥 Pulling latest changes from GitHub..."
+            git pull origin main
+            echo "📦 Installing any new dependencies..."
+            npm install
+            echo "🔄 Generating Prisma client..."
+            npx prisma generate
+            echo "🏗️ Building NestJS application..."
+            npm run build
+            echo "🚀 Restarting PM2 process..."
+            pm2 restart zinthiya-api
+            echo "✅ Auto-deployment completed successfully!"
