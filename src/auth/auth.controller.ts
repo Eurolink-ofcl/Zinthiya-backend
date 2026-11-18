@@ -73,4 +73,12 @@ export class AuthController {
   async getBeneficiaryPortalData(@Request() req: any) {
     return this.authService.getBeneficiaryPortalData(req.user.id);
   }
+
+  @Post('beneficiary/request')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Submit a new support request for authenticated beneficiary' })
+  async createBeneficiaryRequest(@Request() req: any, @Body() body: any) {
+    return this.authService.createBeneficiaryRequest(req.user.id, body);
+  }
 }

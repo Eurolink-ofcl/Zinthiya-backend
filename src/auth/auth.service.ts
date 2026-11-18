@@ -400,8 +400,12 @@ export class AuthService {
 
     const totalAllocated = allAllocations.reduce((sum, a) => sum + Number(a.allocatedAmount || 0), 0);
     const totalDistributed = allAllocations
-      .filter((a) => a.status === 'DISTRIBUTED' || a.status === 'COMPLETED')
+      .filter((a) => a.status === 'DISTRIBUTED')
       .reduce((sum, a) => sum + Number(a.distributedAmount || a.allocatedAmount || 0), 0);
+
+    const categories = await this.prisma.supportCategory.findMany({
+      orderBy: { name: 'asc' },
+    });
 
     const { password, ...safeUser } = user;
     return {
@@ -417,12 +421,41 @@ export class AuthService {
         },
         requests: user.beneficiaryRequests,
         allocations: allAllocations,
+        categories,
         stats: {
           totalAllocated,
           totalDistributed,
           requestCount: user.beneficiaryRequests.length,
         },
       },
+    };
+  }
+
+  async createBeneficiaryRequest(userId: string, body: any) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException('Beneficiary account not found');
+    }
+
+    const req = await this.prisma.beneficiaryRequest.create({
+      data: {
+        userId: user.id,
+        fullName: user.fullName || body.fullName || 'Beneficiary Client',
+        email: user.email,
+        contactPhone: user.phoneNumber || body.phoneNumber || null,
+        serviceType: body.serviceType || 'Emergency Food Parcel',
+        urgency: body.urgency || 'HIGH',
+        notes: body.notes || '',
+        householdSize: body.householdSize ? Number(body.householdSize) : 1,
+        status: 'PENDING',
+        assignedWorker: user.assignedAdvocate || 'Sarah Davies (Senior Crisis Caseworker)',
+      },
+    });
+
+    return {
+      statusCode: 201,
+      message: 'Support request submitted successfully',
+      data: req,
     };
   }
 
