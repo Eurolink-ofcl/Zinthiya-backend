@@ -23,6 +23,8 @@ jobs:
             npm install
             echo "🔄 Generating Prisma client..."
             npx prisma generate
+            echo "🌱 Running Prisma seed..."
+            node prisma/seed.js || true
             echo "🏗️ Building NestJS application..."
             npm run build
             echo "🚀 Restarting PM2 process..."
