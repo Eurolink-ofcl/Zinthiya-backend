@@ -11,11 +11,15 @@ async function bootstrap() {
   app.use(json({ limit: '50mb' }));
   app.use(urlencoded({ limit: '50mb', extended: true }));
 
-  // Enable CORS for frontend clients (web & mobile webview)
+  // Enable CORS for frontend clients (supports Vercel, localhost, and custom domains)
   app.enableCors({
-    origin: '*',
+    origin: (requestOrigin, callback) => {
+      // Allow any origin dynamically (reflects incoming origin to support credentials: true)
+      callback(null, requestOrigin || true);
+    },
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
+    allowedHeaders: 'Content-Type,Accept,Authorization,X-Requested-With',
   });
 
   // Global Input Validation & Transformation for all API endpoints
