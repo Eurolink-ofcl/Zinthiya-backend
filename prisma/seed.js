@@ -79,9 +79,7 @@ async function main() {
         data: {
           name: cat.name,
           description: cat.description,
-          targetAmount: cat.targetAmount,
-          allocatedAmount: 0,
-          distributedAmount: 0,
+          targetFundingRequired: cat.targetAmount,
           status: 'ACTIVE',
         },
       });
