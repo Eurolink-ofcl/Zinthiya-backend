@@ -1339,7 +1339,7 @@ export class AdminService {
       assistanceDescription,
       supportingDocsNote,
       initialNotes,
-      assignedAdvocate = 'Sarah Davies (Senior Crisis Caseworker)',
+      assignedAdvocate = null,
       createPortalAccount = true,
       active = true,
     } = body;
@@ -1462,7 +1462,7 @@ export class AdminService {
         postcode: postcode || null,
         country: country || 'United Kingdom',
         emergencyContact: effectiveEmergencyContact || null,
-        assignedAdvocate: assignedAdvocate || 'Sarah Davies (Senior Crisis Caseworker)',
+        assignedAdvocate: assignedAdvocate || null,
         active: active !== undefined ? active : true,
         documents: formattedUploadedDocs,
         communicationLogs: [initialComm],
@@ -1483,7 +1483,7 @@ export class AdminService {
           status: 'APPROVED',
           notes: [reasonForSupport, assistanceDescription, initialNotes].filter(Boolean).join('\n\n') || null,
           householdSize: Number(householdSize || beneficiaryReach || 1),
-          assignedWorker: assignedAdvocate || 'Sarah Davies (Senior Crisis Caseworker)',
+          assignedWorker: assignedAdvocate || null,
           reviewNotes: 'Auto-approved upon direct admin creation.',
           resolutionDate: new Date(),
         },
@@ -1599,7 +1599,7 @@ export class AdminService {
         status: body.status || 'PENDING',
         notes: body.notes || null,
         householdSize: body.householdSize ? Number(body.householdSize) : 1,
-        assignedWorker: body.assignedWorker || user.assignedAdvocate || 'Sarah Davies',
+        assignedWorker: body.assignedWorker || user.assignedAdvocate || null,
       },
     });
   }
@@ -2745,6 +2745,35 @@ export class AdminService {
       },
     });
 
+    // Cascade staff name or title updates to assigned beneficiaries and requests
+    const oldName = existing.fullName;
+    const newName = updated.fullName;
+    const newDisplay = `${newName} (${updated.jobTitle || updated.staffRole || 'Casework Advocate'})`;
+
+    if (body.fullName !== undefined || body.jobTitle !== undefined) {
+      try {
+        const beneficiaries = await this.prisma.user.findMany({
+          where: {
+            role: Role.BENEFICIARY,
+            assignedAdvocate: { contains: oldName },
+          },
+        });
+        for (const b of beneficiaries) {
+          await this.prisma.user.update({
+            where: { id: b.id },
+            data: { assignedAdvocate: newDisplay },
+          });
+        }
+
+        await this.prisma.beneficiaryRequest.updateMany({
+          where: { assignedWorker: { contains: oldName } },
+          data: { assignedWorker: newDisplay },
+        });
+      } catch (e) {
+        console.warn('Failed cascading staff update to beneficiaries:', e);
+      }
+    }
+
     await this.logAudit({
       action: AuditAction.STAFF_UPDATED,
       entityType: 'Staff',
@@ -2796,6 +2825,29 @@ export class AdminService {
     const existing = await this.prisma.user.findUnique({ where: { id } });
     if (!existing) {
       throw new NotFoundException(`Staff member with ID ${id} not found.`);
+    }
+
+    const oldName = existing.fullName;
+    try {
+      const beneficiaries = await this.prisma.user.findMany({
+        where: {
+          role: Role.BENEFICIARY,
+          assignedAdvocate: { contains: oldName },
+        },
+      });
+      for (const b of beneficiaries) {
+        await this.prisma.user.update({
+          where: { id: b.id },
+          data: { assignedAdvocate: null },
+        });
+      }
+
+      await this.prisma.beneficiaryRequest.updateMany({
+        where: { assignedWorker: { contains: oldName } },
+        data: { assignedWorker: null },
+      });
+    } catch (e) {
+      console.warn('Failed unassigning deleted staff from beneficiaries:', e);
     }
 
     await this.prisma.user.delete({ where: { id } });

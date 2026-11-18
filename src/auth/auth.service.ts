@@ -37,28 +37,33 @@ export class AuthService implements OnModuleInit {
       });
       console.log('✔ Admin account verified in database: admin@zinthiyatrust.org');
 
-      const staffPassword = await bcrypt.hash('StaffZinthiya2026!', 10);
-      await this.prisma.user.upsert({
-        where: { email: 'sarah.davies@zinthiyatrust.org' },
-        update: {
-          role: Role.STAFF,
-          active: true,
+      // Auto-heal legacy mock/fallback staff references on beneficiaries
+      const activeStaff = await this.prisma.user.findFirst({
+        where: { role: Role.STAFF, active: true },
+        select: { fullName: true, jobTitle: true, staffRole: true },
+      });
+      const replacementAdvocate = activeStaff
+        ? `${activeStaff.fullName} (${activeStaff.jobTitle || activeStaff.staffRole || 'Casework Advocate'})`
+        : null;
+
+      await this.prisma.user.updateMany({
+        where: {
+          role: Role.BENEFICIARY,
+          assignedAdvocate: { contains: 'Sarah Davies' },
         },
-        create: {
-          email: 'sarah.davies@zinthiyatrust.org',
-          password: staffPassword,
-          fullName: 'Sarah Davies',
-          role: Role.STAFF,
-          phoneNumber: '0116 254 5168',
-          address: 'Bishop Street',
-          townCity: 'Leicester',
-          postcode: 'LE1 6AF',
-          generalConsent: true,
-          donationTier: DonationTier.SUPPORTER,
-          active: true,
+        data: {
+          assignedAdvocate: replacementAdvocate,
         },
       });
-      console.log('✔ Staff account verified in database: sarah.davies@zinthiyatrust.org');
+
+      await this.prisma.beneficiaryRequest.updateMany({
+        where: {
+          assignedWorker: { contains: 'Sarah Davies' },
+        },
+        data: {
+          assignedWorker: replacementAdvocate,
+        },
+      });
     } catch (e: any) {
       console.warn('Admin onModuleInit bootstrap warning:', e?.message || e);
     }
@@ -172,21 +177,18 @@ export class AuthService implements OnModuleInit {
       where: { email: normalizedEmail },
     });
 
-    // Auto-bootstrap administrative or staff account if not yet seeded
-    if (!user && (normalizedEmail === 'admin@zinthiyatrust.org' || normalizedEmail === 'sarah.davies@zinthiyatrust.org')) {
-      const isStaff = normalizedEmail === 'sarah.davies@zinthiyatrust.org';
-      const defaultPassword = isStaff
-        ? await bcrypt.hash('StaffZinthiya2026!', 10)
-        : await bcrypt.hash('AdminPassword123!', 10);
+    // Auto-bootstrap administrative account if not yet seeded
+    if (!user && normalizedEmail === 'admin@zinthiyatrust.org') {
+      const defaultPassword = await bcrypt.hash('AdminPassword123!', 10);
 
       user = await this.prisma.user.create({
         data: {
           email: normalizedEmail,
           password: defaultPassword,
-          fullName: isStaff ? 'Sarah Davies' : 'Zinthiya Trust Administrator',
-          role: isStaff ? Role.STAFF : Role.ADMIN,
+          fullName: 'Zinthiya Trust Administrator',
+          role: Role.ADMIN,
           generalConsent: true,
-          donationTier: isStaff ? DonationTier.SUPPORTER : DonationTier.PLATINUM,
+          donationTier: DonationTier.PLATINUM,
           active: true,
         },
       });
@@ -389,7 +391,7 @@ export class AuthService implements OnModuleInit {
       dataUrl: doc.dataUrl || doc.url || null,
     }));
 
-    const assignedAdvocate = 'Sarah Davies (Senior Crisis Caseworker)';
+    const assignedAdvocate: string | null = null;
 
     const newUser = await this.prisma.user.create({
       data: {
@@ -533,7 +535,7 @@ export class AuthService implements OnModuleInit {
         notes: body.notes || '',
         householdSize: body.householdSize ? Number(body.householdSize) : 1,
         status: 'PENDING',
-        assignedWorker: user.assignedAdvocate || 'Sarah Davies (Senior Crisis Caseworker)',
+        assignedWorker: user.assignedAdvocate || null,
       },
     });
 

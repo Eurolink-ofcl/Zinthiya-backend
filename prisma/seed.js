@@ -26,27 +26,26 @@ async function main() {
   });
   console.log('✔ Admin user ready:', admin.email);
 
-  // 2. Create Default Casework Staff
-  const staffPassword = await bcrypt.hash('StaffZinthiya2026!', 10);
-  const staff = await prisma.user.upsert({
-    where: { email: 'sarah.davies@zinthiyatrust.org' },
-    update: {
-      role: 'STAFF',
-    },
-    create: {
-      email: 'sarah.davies@zinthiyatrust.org',
-      password: staffPassword,
-      fullName: 'Sarah Davies',
-      role: 'STAFF',
-      phoneNumber: '0116 254 5168',
-      address: 'Bishop Street',
-      townCity: 'Leicester',
-      postcode: 'LE1 6AF',
-      generalConsent: true,
-      donationTier: 'SUPPORTER',
-    },
-  });
-  console.log('✔ Casework staff ready:', staff.email);
+  // 2. Only create initial Casework Staff if no staff exists at all
+  const existingStaffCount = await prisma.user.count({ where: { role: 'STAFF' } });
+  if (existingStaffCount === 0) {
+    const staffPassword = await bcrypt.hash('StaffZinthiya2026!', 10);
+    const staff = await prisma.user.create({
+      data: {
+        email: 'staff@zinthiyatrust.org',
+        password: staffPassword,
+        fullName: 'Support Staff',
+        role: 'STAFF',
+        staffRole: 'CASEWORKER',
+        jobTitle: 'Crisis Advocate',
+        department: 'Crisis & Hardship Support',
+        phoneNumber: '0116 254 5168',
+        generalConsent: true,
+        donationTier: 'SUPPORTER',
+      },
+    });
+    console.log('✔ Initial staff ready:', staff.email);
+  }
 
   // 3. Create Default Support Categories with Funding Targets
   const categories = [
