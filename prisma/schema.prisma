@@ -1,0 +1,311 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  DONOR
+  BENEFICIARY
+  STAFF
+  ADMIN
+}
+
+enum DonationType {
+  ONE_OFF
+  RECURRING
+}
+
+enum DonationStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum DonationTier {
+  SUPPORTER
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+}
+
+model User {
+  id               String         @id @default(uuid())
+  email            String         @unique
+  password         String
+  role             Role           @default(DONOR)
+  fullName         String
+  phoneNumber      String?
+  address          String?
+  townCity         String?
+  postcode         String?
+  country          String?        @default("United Kingdom")
+  
+  // Communication & Newsletter Consent
+  generalConsent   Boolean        @default(true)
+  emailNewsletter  Boolean        @default(true)
+  smsAlerts        Boolean        @default(false)
+  postalUpdates    Boolean        @default(false)
+
+  // Donor CRM metrics
+  totalDonated     Decimal        @default(0.00) @db.Decimal(10, 2)
+  donationTier     DonationTier   @default(SUPPORTER)
+  lastDonationDate DateTime?
+
+  // Beneficiary details & status
+  active           Boolean        @default(true)
+  assignedAdvocate String?
+  emergencyContact String?
+  documents        Json?          @default("[]")
+  communicationLogs Json?         @default("[]")
+
+  // Staff details & governance
+  department       String?
+  jobTitle         String?
+  staffRole        String?        @default("CASEWORKER")
+  permissions      Json?          @default("[]")
+  lastLoginAt      DateTime?
+
+  // Audit timestamps
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  // Relationships
+  donations            Donation[]
+  beneficiaryRequests  BeneficiaryRequest[]
+  allocations          AssistanceAllocation[]
+  auditLogs            AuditLog[]
+
+  @@map("users")
+}
+
+model Campaign {
+  id                       String         @id @default(uuid())
+  campaignCode             String?        @unique
+  campaignType             String         @default("INTERNAL") // INTERNAL or EXTERNAL
+  title                    String
+  description              String
+  targetAmount             Decimal        @db.Decimal(10, 2)
+  raisedAmount             Decimal        @default(0.00) @db.Decimal(10, 2)
+  imageUrl                 String?
+  campaignUrl              String?
+  status                   String         @default("ACTIVE") // DRAFT, ACTIVE, COMPLETED, ARCHIVED
+  active                   Boolean        @default(true)
+  startDate                DateTime?
+  endDate                  DateTime?
+  archived                 Boolean        @default(false)
+
+  // External Campaign & Sponsor Fields
+  corporateSponsor         String?
+  fundraisingPageId        String?
+  fundraisingPageName      String?
+  fundraisingPageUrl       String?
+  fundraiserName           String?
+  fundraiserEmail          String?
+  fundraiserContactConsent Boolean        @default(false)
+  customReference          String?
+  charityReferences        String?
+
+  // Marketing & UTM Tracking Information
+  utmSource                String?
+  utmMedium                String?
+  utmCampaign              String?
+  utmContent               String?
+  utmTerm                  String?
+
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
+
+  donations                Donation[]
+  allocations              AssistanceAllocation[]
+
+  @@map("campaigns")
+}
+
+model Donation {
+  id               String         @id @default(uuid())
+  amount           Decimal        @db.Decimal(10, 2)
+  currency         String         @default("GBP")
+  type             DonationType   @default(ONE_OFF)
+  status           DonationStatus @default(COMPLETED)
+  giftAid          Boolean        @default(false)
+  paymentMethod    String?        @default("Card")
+  reference        String?
+  notes            String?
+  donorName        String?
+  donorEmail       String?
+  
+  // Donor link (can be registered user or anonymous)
+  userId           String?
+  user             User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  // Campaign link
+  campaignId       String?
+  campaign         Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  createdAt        DateTime       @default(now())
+
+  @@map("donations")
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  IN_PROGRESS
+}
+
+enum RequestUrgency {
+  LOW
+  MEDIUM
+  HIGH
+  EMERGENCY
+}
+
+model BeneficiaryRequest {
+  id              String         @id @default(uuid())
+  fullName        String
+  contactPhone    String?
+  email           String?
+  serviceType     String         // e.g. "Emergency Food Parcel", "Energy Grant Voucher", "Domestic Violence Refuge"
+  urgency         RequestUrgency @default(MEDIUM)
+  status          RequestStatus  @default(PENDING)
+  notes           String?
+  householdSize   Int            @default(1)
+  assignedWorker  String?
+  reviewNotes     String?
+  resolutionDate  DateTime?
+  documents       Json?          @default("[]")
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  userId          String?
+  user            User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  allocations     AssistanceAllocation[]
+
+  @@map("beneficiary_requests")
+}
+
+enum AllocationStatus {
+  ALLOCATED
+  DISTRIBUTED
+  CANCELLED
+}
+
+enum AssistanceType {
+  FOOD
+  MEDICAL
+  EDUCATION
+  ENERGY_FUEL
+  HOUSING_RENT
+  DOMESTIC_ABUSE_REFUGE
+  CLOTHING_BEDDING
+  OTHER
+}
+
+model SupportCategory {
+  id                    String                 @id @default(uuid())
+  name                  String                 @unique
+  description           String?
+  targetFundingRequired Decimal                @default(0.00) @db.Decimal(10, 2)
+  status                String                 @default("ACTIVE")
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  allocations           AssistanceAllocation[]
+
+  @@map("support_categories")
+}
+
+model AssistanceAllocation {
+  id                  String           @id @default(uuid())
+  reference           String           @unique
+  
+  userId              String?
+  user                User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  beneficiaryName     String
+  beneficiaryEmail    String?
+  beneficiaryPhone    String?
+
+  requestId           String?
+  request             BeneficiaryRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+
+  campaignId          String?
+  campaign            Campaign?        @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  fundSource          String           @default("General Relief Fund")
+
+
+  categoryId          String?
+  category            SupportCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  categoryName        String?
+
+  assistanceType      AssistanceType   @default(FOOD)
+  description         String?
+
+  allocatedAmount     Decimal          @db.Decimal(10, 2)
+  distributedAmount   Decimal          @default(0.00) @db.Decimal(10, 2)
+  status              AllocationStatus @default(ALLOCATED)
+
+  allocationDate      DateTime         @default(now())
+  distributionDate    DateTime?
+  paymentMethod       String?
+  disbursedBy         String?
+  disbursementNotes   String?
+  receiptReference    String?
+
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@map("assistance_allocations")
+}
+
+enum AuditAction {
+  BENEFICIARY_APPROVED
+  BENEFICIARY_REJECTED
+  BENEFICIARY_STATUS_CHANGED
+  BENEFICIARY_CREATED
+  BENEFICIARY_UPDATED
+  ALLOCATION_CREATED
+  ALLOCATION_DISTRIBUTED
+  ALLOCATION_CANCELLED
+  DONATION_RECORDED
+  DONATION_UPDATED
+  DONATION_STATUS_CHANGED
+  CAMPAIGN_CREATED
+  CAMPAIGN_UPDATED
+  CAMPAIGN_STATUS_TOGGLED
+  STAFF_CREATED
+  STAFF_UPDATED
+  STAFF_DEACTIVATED
+  DOCUMENT_UPLOADED
+  SYSTEM_SETTING_CHANGED
+}
+
+model AuditLog {
+  id           String      @id @default(uuid())
+  action       AuditAction
+  entityType   String      // "Beneficiary", "Allocation", "Donation", "Campaign", "Staff", "System"
+  entityId     String?
+  entityTitle  String?     // e.g. "Aisha Khan", "ALL-2026-001", "Winter Relief"
+  
+  actorId      String?
+  actorName    String      @default("System Administrator")
+  actorEmail   String      @default("admin@zinthiyatrust.org")
+  actorRole    String      @default("ADMIN")
+
+  details      String?     // Human readable description
+  diff         Json?       // { before: {...}, after: {...} } or payload
+  ipAddress    String?     @default("127.0.0.1")
+  
+  createdAt    DateTime    @default(now())
+
+  actor        User?       @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}
+
