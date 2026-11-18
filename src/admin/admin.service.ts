@@ -1255,7 +1255,7 @@ export class AdminService {
    * Retrieves all beneficiaries from PostgreSQL with their requests and documents
    */
   async getAllBeneficiaries() {
-    return this.prisma.user.findMany({
+    const list = await this.prisma.user.findMany({
       where: { role: Role.BENEFICIARY },
       include: {
         beneficiaryRequests: {
@@ -1264,6 +1264,14 @@ export class AdminService {
       },
       orderBy: { createdAt: 'desc' },
     });
+    return list.map((user) => ({
+      ...user,
+      documents: Array.isArray(user.documents)
+        ? (user.documents as any[]).filter(
+            (d: any) => !d?.name?.startsWith('Casework Intake') && !d?.name?.startsWith('Partner Dossier') && !d?.id?.startsWith('doc-intake')
+          )
+        : [],
+    }));
   }
 
   /**
@@ -1281,7 +1289,14 @@ export class AdminService {
     if (!beneficiary) {
       throw new NotFoundException(`Beneficiary with ID ${id} not found.`);
     }
-    return beneficiary;
+    return {
+      ...beneficiary,
+      documents: Array.isArray(beneficiary.documents)
+        ? (beneficiary.documents as any[]).filter(
+            (d: any) => !d?.name?.startsWith('Casework Intake') && !d?.name?.startsWith('Partner Dossier') && !d?.id?.startsWith('doc-intake')
+          )
+        : [],
+    };
   }
 
   /**
@@ -1449,7 +1464,7 @@ export class AdminService {
         emergencyContact: effectiveEmergencyContact || null,
         assignedAdvocate: assignedAdvocate || 'Sarah Davies (Senior Crisis Caseworker)',
         active: active !== undefined ? active : true,
-        documents: [intakeDoc, ...formattedUploadedDocs],
+        documents: formattedUploadedDocs,
         communicationLogs: [initialComm],
       },
     });

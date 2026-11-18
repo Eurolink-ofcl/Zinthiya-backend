@@ -320,7 +320,7 @@ export class AuthService {
         emergencyContact: effectiveEmergencyContact || null,
         assignedAdvocate,
         active: false, // Under review until approved by admin
-        documents: [intakeDoc, ...formattedUploadedDocs],
+        documents: formattedUploadedDocs,
         communicationLogs: [
           {
             id: `comm-${Date.now()}`,
