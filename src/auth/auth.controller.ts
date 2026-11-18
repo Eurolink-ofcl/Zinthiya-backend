@@ -65,4 +65,12 @@ export class AuthController {
       data: { user: req.user },
     };
   }
+
+  @Get('beneficiary/portal-data')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get live portal data, requests, and allocations for authenticated beneficiary' })
+  async getBeneficiaryPortalData(@Request() req: any) {
+    return this.authService.getBeneficiaryPortalData(req.user.id);
+  }
 }

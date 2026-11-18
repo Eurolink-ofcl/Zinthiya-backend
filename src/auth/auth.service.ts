@@ -364,6 +364,68 @@ export class AuthService {
     };
   }
 
+  async getBeneficiaryPortalData(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        beneficiaryRequests: {
+          orderBy: { createdAt: 'desc' },
+          include: {
+            allocations: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('Beneficiary account not found');
+    }
+
+    // Direct allocations
+    const directAllocations = await this.prisma.assistanceAllocation.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const allAllocations = [...directAllocations];
+    user.beneficiaryRequests.forEach((req) => {
+      if (Array.isArray(req.allocations)) {
+        req.allocations.forEach((alloc) => {
+          if (!allAllocations.some((a) => a.id === alloc.id)) {
+            allAllocations.push(alloc);
+          }
+        });
+      }
+    });
+
+    const totalAllocated = allAllocations.reduce((sum, a) => sum + Number(a.allocatedAmount || 0), 0);
+    const totalDistributed = allAllocations
+      .filter((a) => a.status === 'DISTRIBUTED' || a.status === 'COMPLETED')
+      .reduce((sum, a) => sum + Number(a.distributedAmount || a.allocatedAmount || 0), 0);
+
+    const { password, ...safeUser } = user;
+    return {
+      statusCode: 200,
+      data: {
+        user: {
+          ...safeUser,
+          documents: Array.isArray(safeUser.documents)
+            ? (safeUser.documents as any[]).filter(
+                (d: any) => !d?.name?.startsWith('Casework Intake') && !d?.name?.startsWith('Partner Dossier') && !d?.id?.startsWith('doc-intake')
+              )
+            : [],
+        },
+        requests: user.beneficiaryRequests,
+        allocations: allAllocations,
+        stats: {
+          totalAllocated,
+          totalDistributed,
+          requestCount: user.beneficiaryRequests.length,
+        },
+      },
+    };
+  }
+
   private generateToken(userId: string, email: string, role: string): string {
     return this.jwtService.sign({
       sub: userId,
