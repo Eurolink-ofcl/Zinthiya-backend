@@ -2709,6 +2709,7 @@ export class AdminService {
     }
 
     const data: any = {};
+    if (body.email !== undefined) data.email = body.email.toLowerCase().trim();
     if (body.fullName !== undefined) data.fullName = body.fullName.trim();
     if (body.phoneNumber !== undefined) data.phoneNumber = body.phoneNumber.trim();
     if (body.department !== undefined) data.department = body.department.trim();
@@ -3094,6 +3095,7 @@ export class AdminService {
     }
 
     const data: any = {};
+    if (body.email !== undefined) data.email = body.email.toLowerCase().trim();
     if (body.fullName !== undefined) data.fullName = body.fullName.trim();
     if (body.phoneNumber !== undefined) data.phoneNumber = body.phoneNumber.trim();
     if (body.department !== undefined) data.department = body.department.trim();
