@@ -26,6 +26,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         totalDonated: true,
         donationTier: true,
         generalConsent: true,
+        staffRole: true,
+        department: true,
+        jobTitle: true,
+        permissions: true,
       },
     });
 
