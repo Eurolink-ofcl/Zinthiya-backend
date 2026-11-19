@@ -256,12 +256,12 @@ export class AuthService implements OnModuleInit {
       });
     }
 
-    // Check if beneficiary account is pending approval
+    // Check if beneficiary account portal access is disabled
     if (user.role === Role.BENEFICIARY && !user.active) {
       throw new UnauthorizedException({
         statusCode: 403,
-        error: 'AccountPendingApproval',
-        message: 'Your application is currently under review by the Zinthiya Trust team. You will be able to log in once an administrator approves your application.',
+        error: 'PortalAccessDisabled',
+        message: 'Beneficiary portal access is currently disabled for this account. You cannot sign in to the Beneficiary Portal. Please contact The Zinthiya Trust team at info@zinthiyatrust.org or 0116 254 5168.',
       });
     }
 
@@ -525,6 +525,9 @@ export class AuthService implements OnModuleInit {
     if (!user) {
       throw new UnauthorizedException('Beneficiary account not found');
     }
+    if (!user.active) {
+      throw new UnauthorizedException('Beneficiary portal access is disabled by administrator.');
+    }
 
     // Direct allocations
     const directAllocations = await this.prisma.assistanceAllocation.findMany({
@@ -580,6 +583,9 @@ export class AuthService implements OnModuleInit {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
       throw new UnauthorizedException('Beneficiary account not found');
+    }
+    if (!user.active) {
+      throw new UnauthorizedException('Beneficiary portal access is disabled by administrator.');
     }
 
     const req = await this.prisma.beneficiaryRequest.create({
