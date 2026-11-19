@@ -653,6 +653,8 @@ export class AuthService implements OnModuleInit {
       type: body.type || 'text',
       voiceDuration: body.voiceDuration || null,
       voiceTranscript: body.voiceTranscript || null,
+      audioUrl: body.audioUrl || null,
+      attachment: body.attachment || null,
       detectedLanguage: body.detectedLanguage || 'English (UK)',
       translationText: body.translationText || null,
       timestamp: new Date().toISOString(),
