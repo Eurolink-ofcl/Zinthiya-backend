@@ -28,4 +28,10 @@ export class DonorsController {
   async getStats(@Request() req: any) {
     return this.donorsService.getStats(req.user.id);
   }
+
+  @Get('newsletters')
+  @ApiOperation({ summary: 'Get published community announcements and newsletters for donor' })
+  async getNewsletters(@Request() req: any) {
+    return this.donorsService.getNewsletters(req.user.id);
+  }
 }

@@ -81,4 +81,52 @@ export class DonorsService {
       lastDonationDate: user?.lastDonationDate,
     };
   }
+
+  /**
+   * Published community announcements and newsletters for registered donor dashboard
+   */
+  async getNewsletters(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        emailNewsletter: true,
+        donationTier: true,
+      },
+    });
+
+    let broadcasts: any[] = [];
+    try {
+      broadcasts = await this.prisma.$queryRawUnsafe(`
+        SELECT * FROM newsletter_broadcasts ORDER BY created_at DESC;
+      `);
+    } catch (e) {
+      broadcasts = [];
+    }
+
+    const newsletters = (broadcasts || []).map((b) => ({
+      id: b.id,
+      subject: b.subject,
+      content: b.content,
+      channel: b.channel || 'EMAIL',
+      targetType: b.target_type || b.targetType || 'GROUPS',
+      targetGroups: b.target_groups || b.targetGroups,
+      targetTiers: b.target_tiers || b.targetTiers,
+      authorName: b.author_name || b.authorName || 'Zinthiya Trust Executive Office',
+      createdAt: b.created_at || b.createdAt,
+      recipientsCount: Number(b.recipients_count ?? b.eligible_count ?? 0),
+    }));
+
+    return {
+      newsletters,
+      donorConsent: {
+        emailNewsletter: user?.emailNewsletter ?? true,
+        email: user?.email,
+        fullName: user?.fullName,
+        donationTier: user?.donationTier ?? 'SUPPORTER',
+      },
+    };
+  }
 }

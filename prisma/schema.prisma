@@ -309,3 +309,24 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+model NewsletterBroadcast {
+  id              String   @id @default(uuid())
+  subject         String
+  content         String   @db.Text
+  channel         String   @default("EMAIL")
+  targetType      String   @default("GROUPS") @map("target_type")
+  targetGroups    Json?    @default("[]") @map("target_groups")
+  targetTiers     Json?    @default("[]") @map("target_tiers")
+  selectedDonors  Json?    @default("[]") @map("selected_donors")
+  recipientsCount Int      @default(0) @map("recipients_count")
+  eligibleCount   Int      @default(0) @map("eligible_count")
+  excludedCount   Int      @default(0) @map("excluded_count")
+  authorName      String   @default("Zinthiya Trust Executive Office") @map("author_name")
+  status          String   @default("SENT")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("newsletter_broadcasts")
+}
+
+
