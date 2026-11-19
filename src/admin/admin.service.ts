@@ -398,15 +398,26 @@ export class AdminService implements OnModuleInit {
       },
     });
 
-    return donors.map((d) => ({
-      ...d,
-      totalDonated: Number(d.totalDonated),
-      donations: d.donations.map((dn) => ({
-        ...dn,
-        amount: Number(dn.amount),
-      })),
-      donationsCount: d._count.donations,
-    }));
+    const settings = await this.getSystemSettings();
+    const tiers = settings.donationTiers || [];
+    const sortedTiers = [...tiers].sort((a: any, b: any) => Number(b.minAmount) - Number(a.minAmount));
+
+    return donors.map((d) => {
+      const total = Number(d.totalDonated);
+      const matched = sortedTiers.find((t: any) => total >= Number(t.minAmount));
+      return {
+        ...d,
+        totalDonated: total,
+        tierName: matched?.name || d.donationTier,
+        tierMinAmount: matched ? Number(matched.minAmount) : 0,
+        tierColor: matched?.color || 'slate',
+        donations: d.donations.map((dn) => ({
+          ...dn,
+          amount: Number(dn.amount),
+        })),
+        donationsCount: d._count.donations,
+      };
+    });
   }
 
   /**
@@ -434,9 +445,18 @@ export class AdminService implements OnModuleInit {
       throw new NotFoundException(`Donor with ID ${id} not found in database.`);
     }
 
+    const settings = await this.getSystemSettings();
+    const tiers = settings.donationTiers || [];
+    const sortedTiers = [...tiers].sort((a: any, b: any) => Number(b.minAmount) - Number(a.minAmount));
+    const total = Number(donor.totalDonated);
+    const matched = sortedTiers.find((t: any) => total >= Number(t.minAmount));
+
     return {
       ...donor,
-      totalDonated: Number(donor.totalDonated),
+      totalDonated: total,
+      tierName: matched?.name || donor.donationTier,
+      tierMinAmount: matched ? Number(matched.minAmount) : 0,
+      tierColor: matched?.color || 'slate',
       donations: donor.donations.map((dn) => ({
         ...dn,
         amount: Number(dn.amount),
@@ -3354,6 +3374,13 @@ export class AdminService implements OnModuleInit {
         enforceStrongPasswords: true,
         strictAuditLogging: true,
       },
+      donationTiers: [
+        { id: 'SUPPORTER', name: 'Supporter', minAmount: 0, color: 'slate', description: 'General supporters giving up to £99' },
+        { id: 'BRONZE', name: 'Bronze Supporter', minAmount: 100, color: 'amber', description: 'Contributors giving £100 or more' },
+        { id: 'SILVER', name: 'Silver Patron', minAmount: 250, color: 'sky', description: 'Supporters giving £250 or more' },
+        { id: 'GOLD', name: 'Gold Benefactor', minAmount: 500, color: 'yellow', description: 'Major supporters giving £500 or more' },
+        { id: 'PLATINUM', name: 'Platinum Guardian', minAmount: 1000, color: 'purple', description: 'Principal donors giving £1,000 or more' },
+      ],
     };
 
     try {
@@ -3366,6 +3393,9 @@ export class AdminService implements OnModuleInit {
           charity: { ...defaults.charity, ...(val.charity || {}) },
           notifications: { ...defaults.notifications, ...(val.notifications || {}) },
           security: { ...defaults.security, ...(val.security || {}) },
+          donationTiers: Array.isArray(val.donationTiers) && val.donationTiers.length > 0
+            ? val.donationTiers
+            : defaults.donationTiers,
         };
         return this.cachedSystemSettings;
       }
@@ -3395,6 +3425,9 @@ export class AdminService implements OnModuleInit {
         ...current.security,
         ...(body.security || {}),
       },
+      donationTiers: Array.isArray(body.donationTiers) && body.donationTiers.length > 0
+        ? body.donationTiers
+        : (current.donationTiers || []),
     };
     this.cachedSystemSettings = updated;
 
