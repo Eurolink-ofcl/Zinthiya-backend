@@ -9,6 +9,7 @@ export class AdminService implements OnModuleInit {
 
   async onModuleInit() {
     await this.ensureNewsletterTable();
+    await this.ensureSettingsTable();
   }
 
   async ensureNewsletterTable() {
@@ -3309,11 +3310,28 @@ export class AdminService implements OnModuleInit {
     return { success: true, message: 'Password updated successfully. Please use your new password on next login.' };
   }
 
+  private cachedSystemSettings: any = null;
+
+  async ensureSettingsTable() {
+    try {
+      await this.prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS system_settings (
+          key VARCHAR(64) PRIMARY KEY,
+          value JSONB NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+      `);
+    } catch (e: any) {
+      console.warn('ensureSettingsTable warning:', e?.message || e);
+    }
+  }
+
   /**
-   * System and charity settings
+   * System and charity settings (persisted in PostgreSQL with memory fallback)
    */
   async getSystemSettings() {
-    return {
+    await this.ensureSettingsTable();
+    const defaults = {
       charity: {
         name: 'The Zinthiya Ganeshpanchan Trust',
         regNumber: '1137350',
@@ -3337,16 +3355,71 @@ export class AdminService implements OnModuleInit {
         strictAuditLogging: true,
       },
     };
+
+    try {
+      const rows: any[] = await this.prisma.$queryRawUnsafe(`
+        SELECT value FROM system_settings WHERE key = 'main_config' LIMIT 1;
+      `);
+      if (rows && rows.length > 0 && rows[0].value) {
+        const val = typeof rows[0].value === 'string' ? JSON.parse(rows[0].value) : rows[0].value;
+        this.cachedSystemSettings = {
+          charity: { ...defaults.charity, ...(val.charity || {}) },
+          notifications: { ...defaults.notifications, ...(val.notifications || {}) },
+          security: { ...defaults.security, ...(val.security || {}) },
+        };
+        return this.cachedSystemSettings;
+      }
+    } catch (e: any) {
+      console.warn('getSystemSettings db error:', e?.message || e);
+    }
+
+    if (this.cachedSystemSettings) {
+      return this.cachedSystemSettings;
+    }
+    return defaults;
   }
 
   async updateSystemSettings(body: any) {
+    await this.ensureSettingsTable();
+    const current = await this.getSystemSettings();
+    const updated = {
+      charity: {
+        ...current.charity,
+        ...(body.charity || {}),
+      },
+      notifications: {
+        ...current.notifications,
+        ...(body.notifications || {}),
+      },
+      security: {
+        ...current.security,
+        ...(body.security || {}),
+      },
+    };
+    this.cachedSystemSettings = updated;
+
+    try {
+      const jsonStr = JSON.stringify(updated);
+      await this.prisma.$executeRawUnsafe(
+        `
+        INSERT INTO system_settings (key, value, updated_at)
+        VALUES ('main_config', $1::jsonb, NOW())
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
+      `,
+        jsonStr
+      );
+    } catch (e: any) {
+      console.warn('updateSystemSettings db error:', e?.message || e);
+    }
+
     await this.logAudit({
       action: AuditAction.SYSTEM_SETTING_CHANGED,
       entityType: 'System',
-      details: 'Administrator updated charity operational and security configuration.',
-      diff: body,
+      details: 'Administrator updated charity operational and statutory configuration.',
+      diff: updated,
     });
-    return { success: true, settings: body };
+
+    return { success: true, settings: updated };
   }
 
   /**
