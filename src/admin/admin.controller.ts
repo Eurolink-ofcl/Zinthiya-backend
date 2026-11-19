@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Patch, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 import { RequestStatus, DonationStatus } from '@prisma/client';
@@ -230,6 +230,28 @@ export class AdminController {
     @Body() body: any,
   ) {
     return this.adminService.addBeneficiaryCommunication(id, body);
+  }
+
+  @Get('communications/threads')
+  @ApiOperation({ summary: 'Get all live beneficiary communication threads for staff messaging inbox' })
+  async getCommunicationThreads(@Request() req: any) {
+    return this.adminService.getCommunicationThreads(req.user);
+  }
+
+  @Post('beneficiaries/:id/messages')
+  @ApiOperation({ summary: 'Send a text or voice message from staff to beneficiary' })
+  async sendBeneficiaryMessage(
+    @Param('id') id: string,
+    @Body() body: any,
+    @Request() req: any,
+  ) {
+    return this.adminService.sendBeneficiaryMessage(id, body, req.user);
+  }
+
+  @Patch('beneficiaries/:id/messages/read')
+  @ApiOperation({ summary: 'Mark all unread beneficiary messages as read' })
+  async markThreadAsRead(@Param('id') id: string) {
+    return this.adminService.markThreadAsRead(id);
   }
 
   @Delete('beneficiaries/:id')

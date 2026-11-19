@@ -1845,6 +1845,138 @@ export class AdminService implements OnModuleInit {
   }
 
   /**
+   * Retrieves all live communication threads for staff messaging inbox.
+   * Zero mock/fallback data - reads directly from real beneficiary records.
+   */
+  async getCommunicationThreads(staffUser?: any) {
+    const beneficiaries = await this.prisma.user.findMany({
+      where: { role: Role.BENEFICIARY },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phoneNumber: true,
+        townCity: true,
+        postcode: true,
+        assignedAdvocate: true,
+        active: true,
+        communicationLogs: true,
+        createdAt: true,
+        beneficiaryRequests: {
+          take: 1,
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            serviceType: true,
+            status: true,
+            urgency: true,
+          },
+        },
+      },
+    });
+
+    return beneficiaries.map((b) => {
+      const logs = Array.isArray(b.communicationLogs) ? (b.communicationLogs as any[]) : [];
+      const messages = logs
+        .filter((l) => l && (l.isChatMessage || l.sender || l.text))
+        .sort((a, b) => new Date(a.timestamp || a.date).getTime() - new Date(b.timestamp || b.date).getTime());
+
+      const unreadCount = messages.filter((m) => m.sender === 'beneficiary' && !m.read).length;
+      const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+
+      return {
+        beneficiaryId: b.id,
+        beneficiaryName: b.fullName,
+        beneficiaryEmail: b.email,
+        beneficiaryPhone: b.phoneNumber || null,
+        townCity: b.townCity || 'Leicester',
+        postcode: b.postcode || null,
+        assignedAdvocate: b.assignedAdvocate || null,
+        active: b.active,
+        registeredDate: b.createdAt,
+        latestRequest: b.beneficiaryRequests?.[0] || null,
+        messages,
+        lastMessage,
+        unreadCount,
+      };
+    });
+  }
+
+  /**
+   * Sends a message from staff to a beneficiary. Persists directly to PostgreSQL.
+   */
+  async sendBeneficiaryMessage(beneficiaryId: string, body: any, staffUser?: any) {
+    const user = await this.prisma.user.findUnique({ where: { id: beneficiaryId } });
+    if (!user) {
+      throw new NotFoundException(`Beneficiary with ID ${beneficiaryId} not found.`);
+    }
+
+    const currentLogs = Array.isArray(user.communicationLogs) ? (user.communicationLogs as any[]) : [];
+    const newMsg = {
+      id: `msg-${Date.now()}`,
+      isChatMessage: true,
+      sender: 'staff',
+      senderId: staffUser?.id || null,
+      staffName: staffUser?.fullName || user.assignedAdvocate || 'Zinthiya Trust Staff',
+      text: body.text || '',
+      type: body.type || 'text',
+      voiceDuration: body.voiceDuration || null,
+      voiceTranscript: body.voiceTranscript || null,
+      detectedLanguage: body.detectedLanguage || 'English (UK)',
+      translationText: body.translationText || null,
+      timestamp: new Date().toISOString(),
+      read: true,
+    };
+
+    const updatedLogs = currentLogs.map((l) => {
+      if (l && (l.isChatMessage || l.sender === 'beneficiary') && !l.read) {
+        return { ...l, read: true };
+      }
+      return l;
+    });
+
+    updatedLogs.push(newMsg);
+
+    await this.prisma.user.update({
+      where: { id: beneficiaryId },
+      data: { communicationLogs: updatedLogs },
+    });
+
+    const chatMessages = updatedLogs
+      .filter((l) => l && (l.isChatMessage || l.sender || l.text))
+      .sort((a, b) => new Date(a.timestamp || a.date).getTime() - new Date(b.timestamp || b.date).getTime());
+
+    return {
+      message: newMsg,
+      messages: chatMessages,
+    };
+  }
+
+  /**
+   * Marks all beneficiary messages in thread as read.
+   */
+  async markThreadAsRead(beneficiaryId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: beneficiaryId } });
+    if (!user) return { success: false };
+
+    const currentLogs = Array.isArray(user.communicationLogs) ? (user.communicationLogs as any[]) : [];
+    const updatedLogs = currentLogs.map((l) => {
+      if (l && (l.isChatMessage || l.sender === 'beneficiary') && !l.read) {
+        return { ...l, read: true };
+      }
+      return l;
+    });
+
+    await this.prisma.user.update({
+      where: { id: beneficiaryId },
+      data: { communicationLogs: updatedLogs },
+    });
+
+    return { success: true };
+  }
+
+  /**
    * Deletes a beneficiary account and their assistance requests
    */
   async deleteBeneficiary(id: string) {

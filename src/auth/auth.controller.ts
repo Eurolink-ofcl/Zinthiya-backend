@@ -89,4 +89,20 @@ export class AuthController {
   async createBeneficiaryRequest(@Request() req: any, @Body() body: any) {
     return this.authService.createBeneficiaryRequest(req.user.id, body);
   }
+
+  @Get('beneficiary/messages')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get live communication messages for authenticated beneficiary' })
+  async getBeneficiaryMessages(@Request() req: any) {
+    return this.authService.getBeneficiaryMessages(req.user.id);
+  }
+
+  @Post('beneficiary/messages')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Send text or voice message from authenticated beneficiary to casework team' })
+  async sendBeneficiaryMessage(@Request() req: any, @Body() body: any) {
+    return this.authService.sendBeneficiaryMessage(req.user.id, body);
+  }
 }

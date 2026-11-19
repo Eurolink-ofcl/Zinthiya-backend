@@ -610,6 +610,71 @@ export class AuthService implements OnModuleInit {
     };
   }
 
+  /**
+   * Retrieves live chat messages for the authenticated beneficiary. Zero mock/fallback chats.
+   */
+  async getBeneficiaryMessages(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException('Beneficiary account not found');
+    }
+    const currentLogs = Array.isArray(user.communicationLogs) ? (user.communicationLogs as any[]) : [];
+    const chatMessages = currentLogs
+      .filter((l) => l && (l.isChatMessage || l.sender || l.text))
+      .sort((a, b) => new Date(a.timestamp || a.date).getTime() - new Date(b.timestamp || b.date).getTime());
+
+    return {
+      beneficiaryId: user.id,
+      assignedAdvocate: user.assignedAdvocate || null,
+      messages: chatMessages,
+    };
+  }
+
+  /**
+   * Sends text or voice message from beneficiary to casework staff. Persists directly to PostgreSQL.
+   */
+  async sendBeneficiaryMessage(userId: string, body: any) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException('Beneficiary account not found');
+    }
+    if (!user.active) {
+      throw new UnauthorizedException('Beneficiary portal access is disabled by administrator.');
+    }
+
+    const currentLogs = Array.isArray(user.communicationLogs) ? (user.communicationLogs as any[]) : [];
+    const newMsg = {
+      id: `msg-${Date.now()}`,
+      isChatMessage: true,
+      sender: 'beneficiary',
+      senderId: user.id,
+      name: user.fullName,
+      text: body.text || '',
+      type: body.type || 'text',
+      voiceDuration: body.voiceDuration || null,
+      voiceTranscript: body.voiceTranscript || null,
+      detectedLanguage: body.detectedLanguage || 'English (UK)',
+      translationText: body.translationText || null,
+      timestamp: new Date().toISOString(),
+      read: false,
+    };
+
+    const updatedLogs = [...currentLogs, newMsg];
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { communicationLogs: updatedLogs },
+    });
+
+    const chatMessages = updatedLogs
+      .filter((l) => l && (l.isChatMessage || l.sender || l.text))
+      .sort((a, b) => new Date(a.timestamp || a.date).getTime() - new Date(b.timestamp || b.date).getTime());
+
+    return {
+      message: newMsg,
+      messages: chatMessages,
+    };
+  }
+
   private generateToken(userId: string, email: string, role: string): string {
     return this.jwtService.sign({
       sub: userId,
