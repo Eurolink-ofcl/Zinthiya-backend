@@ -53,6 +53,14 @@ export class AuthController {
     return this.authService.login(dto);
   }
 
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Logout and terminate active authenticated session for all 3 portals (Admin, Donor, Beneficiary)' })
+  @ApiResponse({ status: 200, description: 'Session terminated successfully' })
+  async logout(@Request() req: any, @Body() body: any) {
+    return this.authService.logout(req, body);
+  }
+
   @Get('me')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

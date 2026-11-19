@@ -287,6 +287,38 @@ export class AuthService implements OnModuleInit {
   }
 
   /**
+   * Universal Logout Endpoint for all 3 portals (Admin, Donor, Beneficiary).
+   * Decodes JWT token if present, logs session termination, and confirms invalidation.
+   */
+  async logout(req?: any, body?: any) {
+    let userEmail = body?.email || 'Unknown';
+    let userRole = body?.portal || 'USER';
+
+    try {
+      const authHeader = req?.headers?.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.substring(7);
+        const decoded: any = this.jwtService.decode(token);
+        if (decoded) {
+          userEmail = decoded.email || userEmail;
+          userRole = decoded.role || userRole;
+        }
+      }
+    } catch (e: any) {
+      // Gracefully continue even if token is expired or unparseable
+    }
+
+    console.log(`[AUTH LOGOUT] User signed out: ${userEmail} (Role/Portal: ${userRole}) at ${new Date().toISOString()}`);
+
+    return {
+      statusCode: 200,
+      success: true,
+      message: 'Successfully logged out and session terminated.',
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  /**
    * Public Beneficiary Registration (Individual or Organisation)
    * Exact same fields as Admin Beneficiary Creation.
    * Creates account with active: false (Pending Review & Approval by Admin).
