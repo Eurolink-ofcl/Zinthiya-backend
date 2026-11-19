@@ -104,7 +104,7 @@ export class AdminService implements OnModuleInit {
         where: { role: Role.DONOR },
       }),
       this.prisma.campaign.count({
-        where: { active: true },
+        where: { active: true, archived: false, status: { not: 'ARCHIVED' } },
       }),
       this.prisma.user.count({
         where: { role: Role.BENEFICIARY },
@@ -142,6 +142,7 @@ export class AdminService implements OnModuleInit {
 
     // 3. Campaign Performance (All campaigns with live raised amounts and donation counts)
     const campaigns = await this.prisma.campaign.findMany({
+      where: { archived: false, status: { not: 'ARCHIVED' } },
       include: {
         _count: {
           select: { donations: true },
@@ -731,9 +732,13 @@ export class AdminService implements OnModuleInit {
       const target = Number(c.targetAmount);
       const raised = Number(c.raisedAmount);
       const percentage = target > 0 ? Math.min(100, Math.round((raised / target) * 100)) : 0;
+      const isArchived = Boolean(c.archived) || c.status === 'ARCHIVED';
 
       return {
         ...c,
+        archived: isArchived,
+        active: isArchived ? false : c.active,
+        status: isArchived ? 'ARCHIVED' : (c.status || 'ACTIVE'),
         targetAmount: target,
         raisedAmount: raised,
         progressPercentage: percentage,
@@ -1005,6 +1010,29 @@ export class AdminService implements OnModuleInit {
   }
 
   /**
+   * Persistently registers that campaigns have been initialized.
+   * Prevents deployment seeds or server restarts from recreating deleted campaigns.
+   */
+  async markCampaignsSeeded() {
+    try {
+      await this.prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS system_settings (
+          key VARCHAR(64) PRIMARY KEY,
+          value JSONB NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+      `);
+      await this.prisma.$executeRawUnsafe(`
+        INSERT INTO system_settings (key, value)
+        VALUES ('campaigns_seeded', '{"seeded": true}'::jsonb)
+        ON CONFLICT (key) DO UPDATE SET value = '{"seeded": true}'::jsonb;
+      `);
+    } catch (e: any) {
+      console.warn('markCampaignsSeeded warning:', e?.message || e);
+    }
+  }
+
+  /**
    * Archives or unarchives a campaign.
    */
   async archiveCampaign(id: string, archived: boolean) {
@@ -1019,16 +1047,17 @@ export class AdminService implements OnModuleInit {
       data: {
         archived: isArchived,
         active: isArchived ? false : existing.active,
+        status: isArchived ? 'ARCHIVED' : (existing.status === 'ARCHIVED' ? 'ACTIVE' : existing.status),
       },
     });
   }
 
   /**
    * Deletes a campaign from PostgreSQL.
-   * If donations already exist in the financial ledger, safely archives the campaign
-   * to preserve audit compliance.
+   * If donations exist and force is false, safely archives the campaign to preserve audit compliance.
+   * If force is true, detaches donations and allocations safely, completely purging the campaign.
    */
-  async deleteCampaign(id: string) {
+  async deleteCampaign(id: string, force = false) {
     const campaign = await this.prisma.campaign.findUnique({
       where: { id },
       include: { _count: { select: { donations: true } } },
@@ -1038,12 +1067,31 @@ export class AdminService implements OnModuleInit {
       throw new NotFoundException(`Campaign with ID ${id} not found.`);
     }
 
-    if (campaign._count.donations > 0) {
+    // Persistently mark campaigns as seeded so background seeds or deploys never re-create deleted defaults
+    await this.markCampaignsSeeded();
+
+    // Detach allocations
+    await this.prisma.assistanceAllocation.updateMany({
+      where: { campaignId: id },
+      data: { campaignId: null },
+    });
+
+    if (campaign._count.donations > 0 && !force) {
       return this.prisma.campaign.update({
         where: { id },
-        data: { archived: true, active: false },
+        data: {
+          archived: true,
+          active: false,
+          status: 'ARCHIVED',
+        },
       });
     }
+
+    // Detach donations so monetary audit trail stays intact without blocking deletion
+    await this.prisma.donation.updateMany({
+      where: { campaignId: id },
+      data: { campaignId: null },
+    });
 
     return this.prisma.campaign.delete({
       where: { id },

@@ -108,8 +108,12 @@ export class AdminController {
 
   @Delete('campaigns/:id')
   @ApiOperation({ summary: 'Delete or archive a campaign from the database' })
-  async deleteCampaign(@Param('id') id: string) {
-    return this.adminService.deleteCampaign(id);
+  async deleteCampaign(
+    @Param('id') id: string,
+    @Query('force') force?: string,
+  ) {
+    const isForce = force === 'true' || force === '1';
+    return this.adminService.deleteCampaign(id, isForce);
   }
 
   // --- Donation Management Endpoints ---

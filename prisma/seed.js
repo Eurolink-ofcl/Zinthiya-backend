@@ -6,12 +6,11 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('Seeding Zinthiya Trust database...');
 
-  // 1. Create or update Default Admin
+  // 1. Create or ensure Default Admin (does not overwrite existing password on update)
   const adminPassword = await bcrypt.hash('AdminPassword123!', 10);
   const admin = await prisma.user.upsert({
     where: { email: 'admin@zinthiyatrust.org' },
     update: {
-      password: adminPassword,
       role: 'ADMIN',
       fullName: 'Zinthiya Trust Administrator',
     },
@@ -86,34 +85,65 @@ async function main() {
     }
   }
 
-  // 4. Create Default Campaigns
-  const campaigns = [
-    {
-      title: 'Winter Warmth & Fuel Relief Appeal',
-      description: 'Direct prepayment fuel vouchers and warm packs to keep vulnerable elderly and struggling families warm this winter.',
-      targetAmount: 25000,
-      raisedAmount: 4250,
-      active: true,
-      imageUrl: 'https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?auto=format&fit=crop&q=80',
-    },
-    {
-      title: 'Emergency Food Parcels for Struggling Families',
-      description: 'Nutritional food parcels, baby staples, and essentials for families affected by the cost-of-living crisis across Leicestershire.',
-      targetAmount: 15000,
-      raisedAmount: 6180,
-      active: true,
-      imageUrl: 'https://images.unsplash.com/photo-1488521787991-ed7bbaae773c?auto=format&fit=crop&q=80',
-    },
-  ];
+  // 4. Create Default Campaigns ONLY ON FIRST SYSTEM INITIALIZATION
+  // If campaigns were already initialized once, do not re-seed, allowing admin deletion/customization to persist.
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS system_settings (
+      key VARCHAR(64) PRIMARY KEY,
+      value JSONB NOT NULL,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    );
+  `).catch(() => {});
 
-  for (const camp of campaigns) {
-    const existing = await prisma.campaign.findFirst({ where: { title: camp.title } });
-    if (!existing) {
-      await prisma.campaign.create({
-        data: camp,
-      });
-      console.log(`✔ Created Campaign: ${camp.title}`);
+  const seedRecord = await prisma.$queryRawUnsafe(
+    "SELECT value FROM system_settings WHERE key = 'campaigns_seeded' LIMIT 1;"
+  ).catch(() => []);
+
+  if (!seedRecord || seedRecord.length === 0) {
+    const campaigns = [
+      {
+        title: 'Winter Warmth & Fuel Relief Appeal',
+        description: 'Direct prepayment fuel vouchers and warm packs to keep vulnerable elderly and struggling families warm this winter.',
+        targetAmount: 25000,
+        raisedAmount: 4250,
+        active: true,
+        imageUrl: 'https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?auto=format&fit=crop&q=80',
+      },
+      {
+        title: 'Emergency Food Parcels for Struggling Families',
+        description: 'Nutritional food parcels, baby staples, and essentials for families affected by the cost-of-living crisis across Leicestershire.',
+        targetAmount: 15000,
+        raisedAmount: 6180,
+        active: true,
+        imageUrl: 'https://images.unsplash.com/photo-1488521787991-ed7bbaae773c?auto=format&fit=crop&q=80',
+      },
+      {
+        title: 'Chapel Cafe Community Kitchen',
+        description: 'Subsidised wholesome hot meals, tea, and warm companionship for isolated residents, low-income seniors, and individuals experiencing acute financial hardship.',
+        targetAmount: 15000,
+        raisedAmount: 9200,
+        active: true,
+        imageUrl: 'https://images.unsplash.com/photo-1593113646773-028c64a8f1b8?auto=format&fit=crop&q=80',
+      },
+    ];
+
+    const currentCampaignsCount = await prisma.campaign.count();
+    if (currentCampaignsCount === 0) {
+      for (const camp of campaigns) {
+        await prisma.campaign.create({
+          data: camp,
+        });
+        console.log(`✔ Created Campaign: ${camp.title}`);
+      }
     }
+
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO system_settings (key, value)
+      VALUES ('campaigns_seeded', '{"seeded": true}'::jsonb)
+      ON CONFLICT (key) DO UPDATE SET value = '{"seeded": true}'::jsonb;
+    `).catch(() => {});
+  } else {
+    console.log('ℹ Campaigns seeding already initialized; skipping to preserve admin changes/deletions.');
   }
 
   console.log('\nDatabase seeding finished successfully!');
