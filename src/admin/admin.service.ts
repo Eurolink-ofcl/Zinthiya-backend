@@ -2409,6 +2409,8 @@ export class AdminService implements OnModuleInit {
       return {
         id: camp.id,
         title: camp.title,
+        campaignCode: camp.campaignCode || 'INTERNAL-APPEAL',
+        campaignType: camp.campaignType || 'INTERNAL',
         targetAmount: campTarget,
         raisedAmountAllTime: campRaisedAllTime,
         periodDonations: campTotal,
@@ -2416,6 +2418,8 @@ export class AdminService implements OnModuleInit {
         percentOfTotalDonations: totalDonationsReceived > 0 ? (campTotal / totalDonationsReceived) * 100 : 0,
         progressPercent: campTarget > 0 ? (campRaisedAllTime / campTarget) * 100 : 0,
         active: camp.active,
+        startDate: camp.startDate,
+        endDate: camp.endDate,
       };
     });
 
@@ -2425,6 +2429,8 @@ export class AdminService implements OnModuleInit {
       campaignStats.unshift({
         id: 'general',
         title: 'General Relief Fund (Unrestricted)',
+        campaignCode: 'GEN-RELIEF',
+        campaignType: 'INTERNAL',
         targetAmount: 0,
         raisedAmountAllTime: generalTotal,
         periodDonations: generalTotal,
@@ -2432,6 +2438,8 @@ export class AdminService implements OnModuleInit {
         percentOfTotalDonations: totalDonationsReceived > 0 ? (generalTotal / totalDonationsReceived) * 100 : 0,
         progressPercent: 100,
         active: true,
+        startDate: null,
+        endDate: null,
       });
     }
 
@@ -2439,6 +2447,52 @@ export class AdminService implements OnModuleInit {
     const recurringDonations = filteredDonations.filter((d) => d.type === DonationType.RECURRING);
     const oneOffTotal = oneOffDonations.reduce((sum, d) => sum + Number(d.amount), 0);
     const recurringTotal = recurringDonations.reduce((sum, d) => sum + Number(d.amount), 0);
+
+    const onlineDonationsTotal = filteredDonations
+      .filter((d: any) => d.paymentMethod !== 'CASH' && d.paymentMethod !== 'BANK_TRANSFER')
+      .reduce((sum, d) => sum + Number(d.amount), 0);
+    const externalDonationsTotal = filteredDonations
+      .filter((d) => d.campaign?.campaignType === 'EXTERNAL')
+      .reduce((sum, d) => sum + Number(d.amount), 0);
+    const giftAidTotal = filteredDonations
+      .filter((d) => d.giftAid)
+      .reduce((sum, d) => sum + Number(d.amount) * 0.25, 0);
+
+    const donationsList = filteredDonations.map((d: any) => ({
+      id: d.id,
+      reference: d.reference || `DON-${d.id.slice(0, 8).toUpperCase()}`,
+      amount: Number(d.amount),
+      type: d.type,
+      giftAid: d.giftAid,
+      giftAidAmount: d.giftAid ? Number(d.amount) * 0.25 : 0,
+      createdAt: d.createdAt,
+      donorName: d.user?.fullName || 'Anonymous Supporter',
+      donorEmail: d.user?.email || 'N/A',
+      donorPhone: d.user?.phoneNumber || 'N/A',
+      donorTier: d.user?.donationTier || 'SUPPORTER',
+      campaignTitle: d.campaign?.title || 'General Relief Fund (Unrestricted)',
+      campaignType: d.campaign?.campaignType || 'INTERNAL',
+      isExternal: d.campaign?.campaignType === 'EXTERNAL',
+      paymentMethod: d.paymentMethod || 'Online (Stripe)',
+    }));
+
+    const distributionsList = allocations.map((a: any) => ({
+      id: a.id,
+      reference: a.reference || `ALL-${a.id.slice(0, 8).toUpperCase()}`,
+      beneficiaryName: a.beneficiaryName,
+      beneficiaryEmail: a.beneficiaryEmail || 'N/A',
+      beneficiaryPhone: a.beneficiaryPhone || 'N/A',
+      supportCategory: a.categoryName || a.assistanceType || 'General Hardship Relief',
+      campaignTitle: a.campaign?.title || a.fundSource || 'General Relief Fund',
+      allocatedAmount: Number(a.allocatedAmount),
+      distributedAmount: Number(a.distributedAmount),
+      status: a.status,
+      allocationDate: a.allocationDate || a.createdAt,
+      distributionDate: a.distributionDate,
+      paymentMethod: a.paymentMethod || 'Direct Grant / Voucher',
+      disbursedBy: a.disbursedBy || 'Lead Caseworker',
+      notes: a.disbursementNotes || 'Client welfare relief grant recorded.',
+    }));
 
     const donationTypeSplit = {
       oneOff: {
@@ -2463,6 +2517,7 @@ export class AdminService implements OnModuleInit {
           id: donor.id,
           name: donor.fullName,
           email: donor.email,
+          phone: donor.phoneNumber || 'N/A',
           tier: donor.donationTier,
           location: [donor.townCity, donor.country].filter(Boolean).join(', ') || 'United Kingdom',
           totalContributed: total,
@@ -2594,9 +2649,17 @@ export class AdminService implements OnModuleInit {
         totalDonationsReceived,
         donationsCount,
         averageDonation,
+        onlineDonationsTotal,
+        externalDonationsTotal,
+        oneOffDonationsTotal: oneOffTotal,
+        recurringDonationsTotal: recurringTotal,
+        giftAidTotal,
         totalDonorsCount: allDonors.length,
         repeatDonorsCount,
         singleGiftDonorsCount,
+        totalCampaignsCount: campaignStats.length,
+        internalCampaignsCount: campaignStats.filter((c) => c.campaignType !== 'EXTERNAL').length,
+        externalCampaignsCount: campaignStats.filter((c) => c.campaignType === 'EXTERNAL').length,
         totalAllocatedAmount,
         totalDistributedAmount,
         totalPendingDistribution,
@@ -2608,6 +2671,8 @@ export class AdminService implements OnModuleInit {
       donationTypeSplit,
       topDonors,
       donorGrowth,
+      donations: donationsList,
+      distributions: distributionsList,
       beneficiarySupport: {
         byService: beneficiaryServiceBreakdown,
         byStatus: requestsByStatus,
