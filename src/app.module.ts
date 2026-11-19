@@ -6,6 +6,7 @@ import { DonorsModule } from './donors/donors.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { DonationsModule } from './donations/donations.module';
 import { AdminModule } from './admin/admin.module';
+import { TranslationModule } from './admin/translation.module';
 import { HealthController } from './health/health.controller';
 
 @Module({
@@ -15,6 +16,7 @@ import { HealthController } from './health/health.controller';
       envFilePath: '.env',
     }),
     PrismaModule,
+    TranslationModule,
     AuthModule,
     DonorsModule,
     CampaignsModule,

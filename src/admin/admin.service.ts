@@ -2,10 +2,14 @@ import { Injectable, NotFoundException, ConflictException, BadRequestException, 
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { Role, DonationStatus, RequestStatus, DonationTier, DonationType, AllocationStatus, AssistanceType, AuditAction } from '@prisma/client';
+import { TranslationService } from './translation.service';
 
 @Injectable()
 export class AdminService implements OnModuleInit {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly translationService: TranslationService,
+  ) {}
 
   async onModuleInit() {
     await this.ensureNewsletterTable();
@@ -1885,6 +1889,16 @@ export class AdminService implements OnModuleInit {
       const unreadCount = messages.filter((m) => m.sender === 'beneficiary' && !m.read).length;
       const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
 
+      // Identify preferred language from messages
+      let preferredLanguage = 'en';
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i];
+        if (m.originalLanguage && m.originalLanguage !== 'en') {
+          preferredLanguage = m.originalLanguage;
+          break;
+        }
+      }
+
       return {
         beneficiaryId: b.id,
         beneficiaryName: b.fullName,
@@ -1896,6 +1910,8 @@ export class AdminService implements OnModuleInit {
         active: b.active,
         registeredDate: b.createdAt,
         latestRequest: b.beneficiaryRequests?.[0] || null,
+        preferredLanguage,
+        preferredLanguageLabel: this.translationService.getLanguageLabel(preferredLanguage),
         messages,
         lastMessage,
         unreadCount,
@@ -1913,6 +1929,37 @@ export class AdminService implements OnModuleInit {
     }
 
     const currentLogs = Array.isArray(user.communicationLogs) ? (user.communicationLogs as any[]) : [];
+
+    // Identify beneficiary's preferred language from recent communications or targetLanguage in request
+    let beneficiaryLang = (body.targetLanguage || '').trim();
+    if (!beneficiaryLang || beneficiaryLang === 'auto') {
+      beneficiaryLang = 'en';
+      for (let i = currentLogs.length - 1; i >= 0; i--) {
+        const log = currentLogs[i];
+        if (log && log.sender === 'beneficiary' && log.originalLanguage && log.originalLanguage !== 'en') {
+          beneficiaryLang = log.originalLanguage;
+          break;
+        }
+      }
+    }
+
+    const rawText = (body.text || body.voiceTranscript || '').trim();
+    let translatedText: string | null = null;
+    let detectedLanguage = 'English (UK)';
+
+    // If beneficiary preferred language is not English, dynamically translate staff's English text into beneficiary's language
+    if (rawText && beneficiaryLang && beneficiaryLang !== 'en') {
+      try {
+        const transResult = await this.translationService.translate(rawText, beneficiaryLang, 'en');
+        if (transResult.translatedMessage && transResult.translatedMessage.toLowerCase() !== rawText.toLowerCase()) {
+          translatedText = transResult.translatedMessage;
+        }
+        detectedLanguage = this.translationService.getLanguageLabel(beneficiaryLang);
+      } catch (err) {
+        // Fallback to original text if external translation fails
+      }
+    }
+
     const newMsg = {
       id: `msg-${Date.now()}`,
       isChatMessage: true,
@@ -1925,8 +1972,13 @@ export class AdminService implements OnModuleInit {
       voiceTranscript: body.voiceTranscript || null,
       audioUrl: body.audioUrl || null,
       attachment: body.attachment || null,
-      detectedLanguage: body.detectedLanguage || 'English (UK)',
-      translationText: body.translationText || null,
+      originalMessage: body.text || rawText,
+      originalLanguage: 'en',
+      translatedMessage: translatedText || body.text || rawText,
+      translatedLanguage: beneficiaryLang,
+      translationText: translatedText,
+      detectedLanguage: detectedLanguage,
+      preferredLanguage: beneficiaryLang,
       timestamp: new Date().toISOString(),
       read: true,
     };
@@ -1952,6 +2004,8 @@ export class AdminService implements OnModuleInit {
     return {
       message: newMsg,
       messages: chatMessages,
+      preferredLanguage: beneficiaryLang,
+      preferredLanguageLabel: detectedLanguage,
     };
   }
 

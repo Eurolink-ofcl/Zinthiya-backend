@@ -5,12 +5,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { Role, DonationTier } from '@prisma/client';
+import { TranslationService } from '../admin/translation.service';
 
 @Injectable()
 export class AuthService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly translationService: TranslationService,
   ) {}
 
   /**
@@ -623,9 +625,20 @@ export class AuthService implements OnModuleInit {
       .filter((l) => l && (l.isChatMessage || l.sender || l.text))
       .sort((a, b) => new Date(a.timestamp || a.date).getTime() - new Date(b.timestamp || b.date).getTime());
 
+    let preferredLanguage = 'en';
+    for (let i = chatMessages.length - 1; i >= 0; i--) {
+      const msg = chatMessages[i];
+      if (msg.originalLanguage && msg.originalLanguage !== 'en') {
+        preferredLanguage = msg.originalLanguage;
+        break;
+      }
+    }
+
     return {
       beneficiaryId: user.id,
       assignedAdvocate: user.assignedAdvocate || null,
+      preferredLanguage,
+      preferredLanguageLabel: this.translationService.getLanguageLabel(preferredLanguage),
       messages: chatMessages,
     };
   }
@@ -643,6 +656,30 @@ export class AuthService implements OnModuleInit {
     }
 
     const currentLogs = Array.isArray(user.communicationLogs) ? (user.communicationLogs as any[]) : [];
+
+    // Automatically detect language and translate message into English dynamically for caseworker
+    const rawText = (body.text || body.voiceTranscript || '').trim();
+    let detectedLangCode = 'en';
+    let translatedMsg = rawText;
+    let detectedLabel = 'English (UK)';
+    let translationText: string | null = null;
+
+    if (rawText) {
+      try {
+        const transResult = await this.translationService.translate(rawText, 'en', body.sourceLanguage || 'auto');
+        detectedLangCode = transResult.detectedLanguage || 'en';
+        translatedMsg = transResult.translatedMessage;
+        detectedLabel = this.translationService.getLanguageLabel(detectedLangCode);
+
+        // If the detected language is not English, save the translated text for staff
+        if (detectedLangCode !== 'en' && translatedMsg && translatedMsg.toLowerCase() !== rawText.toLowerCase()) {
+          translationText = translatedMsg;
+        }
+      } catch (err) {
+        // Fallback to original text if external translation fails
+      }
+    }
+
     const newMsg = {
       id: `msg-${Date.now()}`,
       isChatMessage: true,
@@ -655,8 +692,13 @@ export class AuthService implements OnModuleInit {
       voiceTranscript: body.voiceTranscript || null,
       audioUrl: body.audioUrl || null,
       attachment: body.attachment || null,
-      detectedLanguage: body.detectedLanguage || 'English (UK)',
-      translationText: body.translationText || null,
+      originalMessage: body.text || rawText,
+      originalLanguage: detectedLangCode,
+      translatedMessage: translationText || body.text || rawText,
+      translatedLanguage: 'en',
+      detectedLanguage: detectedLabel,
+      translationText: translationText,
+      preferredLanguage: detectedLangCode,
       timestamp: new Date().toISOString(),
       read: false,
     };
@@ -674,6 +716,8 @@ export class AuthService implements OnModuleInit {
     return {
       message: newMsg,
       messages: chatMessages,
+      preferredLanguage: detectedLangCode,
+      preferredLanguageLabel: detectedLabel,
     };
   }
 
