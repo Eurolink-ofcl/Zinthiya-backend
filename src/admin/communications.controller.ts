@@ -1,10 +1,22 @@
 import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { TranslationService, TranslationResult } from './translation.service';
 
 export class TranslateMessageDto {
+  @ApiProperty({ description: 'The text message to translate', example: 'എനിക്ക് സഹായം വേണം' })
+  @IsString()
+  @IsNotEmpty()
   message: string;
+
+  @ApiPropertyOptional({ description: 'Source language code or auto', example: 'auto', default: 'auto' })
+  @IsString()
+  @IsOptional()
   sourceLanguage?: string;
+
+  @ApiPropertyOptional({ description: 'Target language code', example: 'en', default: 'en' })
+  @IsString()
+  @IsOptional()
   targetLanguage?: string;
 }
 
