@@ -319,11 +319,21 @@ export class AdminService implements OnModuleInit {
 
   /**
    * Updates beneficiary request status (e.g. APPROVED, IN_PROGRESS, REJECTED)
+   * If admin approves the beneficiary, they can optionally assign a casework advocate.
    */
-  async updateRequestStatus(id: string, status: RequestStatus, reviewNotes?: string) {
+  async updateRequestStatus(
+    id: string,
+    status: RequestStatus,
+    reviewNotes?: string,
+    assignedAdvocate?: string,
+  ) {
     const data: any = { status };
     if (reviewNotes !== undefined) {
       data.reviewNotes = reviewNotes;
+    }
+    const cleanAdvocate = assignedAdvocate && assignedAdvocate.trim() !== '' && assignedAdvocate !== 'UNASSIGNED' ? assignedAdvocate.trim() : null;
+    if (cleanAdvocate !== null) {
+      data.assignedWorker = cleanAdvocate;
     }
     if (status === RequestStatus.APPROVED || status === RequestStatus.REJECTED) {
       data.resolutionDate = new Date();
@@ -335,9 +345,25 @@ export class AdminService implements OnModuleInit {
 
     // When admin approves a beneficiary request, automatically activate their portal account so they can log in
     if (status === RequestStatus.APPROVED && updated.userId) {
+      const userUpdateData: any = { active: true };
+      if (cleanAdvocate !== null) {
+        userUpdateData.assignedAdvocate = cleanAdvocate;
+      }
       await this.prisma.user.update({
         where: { id: updated.userId },
-        data: { active: true },
+        data: userUpdateData,
+      });
+
+      if (cleanAdvocate !== null) {
+        await this.prisma.beneficiaryRequest.updateMany({
+          where: { userId: updated.userId, status: { in: [RequestStatus.PENDING, RequestStatus.IN_PROGRESS] } },
+          data: { assignedWorker: cleanAdvocate },
+        });
+      }
+    } else if (cleanAdvocate !== null && updated.userId) {
+      await this.prisma.user.update({
+        where: { id: updated.userId },
+        data: { assignedAdvocate: cleanAdvocate },
       });
     }
 

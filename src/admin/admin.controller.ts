@@ -15,13 +15,14 @@ export class AdminController {
   }
 
   @Patch('beneficiary-requests/:id/status')
-  @ApiOperation({ summary: 'Update status of a beneficiary request' })
+  @ApiOperation({ summary: 'Update status of a beneficiary request and optionally assign advocate upon approval' })
   async updateRequestStatus(
     @Param('id') id: string,
     @Body('status') status: RequestStatus,
     @Body('reviewNotes') reviewNotes?: string,
+    @Body('assignedAdvocate') assignedAdvocate?: string,
   ) {
-    return this.adminService.updateRequestStatus(id, status, reviewNotes);
+    return this.adminService.updateRequestStatus(id, status, reviewNotes, assignedAdvocate);
   }
 
   // --- Donor CRM Endpoints ---
