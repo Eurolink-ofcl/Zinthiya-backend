@@ -3345,8 +3345,7 @@ export class AdminService implements OnModuleInit {
         totalSubscribers: subscribers.length,
         totalAudience: totalDonors,
         consentRate: Math.round(consentRate),
-        smsSubscribers: donors.filter((d) => d.smsAlerts).length,
-        postalSubscribers: donors.filter((d) => d.postalUpdates).length,
+        portalBroadcastsCount: broadcasts.length,
       },
       campaignsHistory,
     };
@@ -3358,7 +3357,7 @@ export class AdminService implements OnModuleInit {
     const id = 'news-' + Date.now();
     const subject = String(body.subject || 'Zinthiya Trust Community Update').trim();
     const content = String(body.content || body.body || '').trim();
-    const channel = String(body.channel || 'EMAIL');
+    const channel = String(body.channel || 'EMAIL_AND_PORTAL');
     const targetType = String(body.targetType || (body.audience ? 'GROUPS' : 'GROUPS'));
     const targetGroups = JSON.stringify(body.targetGroups || (body.audience ? [body.audience] : ['ALL_DONORS']));
     const targetTiers = JSON.stringify(body.targetTiers || []);
