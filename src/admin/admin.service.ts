@@ -3615,7 +3615,7 @@ export class AdminService implements OnModuleInit {
     await this.ensureSettingsTable();
     const defaults = {
       charity: {
-        name: 'The Zinthiya Ganeshpanchan Trust',
+        name: 'The Zinthiya Trust',
         regNumber: '1137350',
         companyNumber: '07258327',
         officialAddress: '12 New Walk, Leicester, LE1 6TF, United Kingdom',

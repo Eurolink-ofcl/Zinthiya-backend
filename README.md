@@ -1,6 +1,6 @@
 # Zinthiya Trust - Backend API
 
-Production NestJS API backend for **The Zinthiya Ganeshpanchan Trust** (Charity #1137350), providing mission-critical services for donors, beneficiaries, advocates, and administrators.
+Production NestJS API backend for **The Zinthiya Trust** (Charity #1137350), providing mission-critical services for donors, beneficiaries, advocates, and administrators.
 
 ## Features
 
