@@ -267,6 +267,55 @@ export class AuthService implements OnModuleInit {
       });
     }
 
+    // Strict Portal Role Isolation: Ensure users can only sign into their authorized portal
+    if (dto.portal) {
+      const portal = dto.portal.toLowerCase().trim();
+      if (portal === 'donor' && user.role !== Role.DONOR) {
+        if (user.role === Role.BENEFICIARY) {
+          throw new UnauthorizedException({
+            statusCode: 403,
+            error: 'WrongPortalAccess',
+            message: 'Beneficiary accounts cannot access the Donor Portal. Please sign in at the Beneficiary Portal (/beneficiary/login).',
+          });
+        }
+        throw new UnauthorizedException({
+          statusCode: 403,
+          error: 'WrongPortalAccess',
+          message: 'Staff and administrative accounts must sign in via the Admin Portal (/admin/login).',
+        });
+      }
+
+      if (portal === 'beneficiary' && user.role !== Role.BENEFICIARY) {
+        if (user.role === Role.DONOR) {
+          throw new UnauthorizedException({
+            statusCode: 403,
+            error: 'WrongPortalAccess',
+            message: 'Donor accounts cannot access the Beneficiary Portal. Please sign in at the Donor Portal (/login).',
+          });
+        }
+        throw new UnauthorizedException({
+          statusCode: 403,
+          error: 'WrongPortalAccess',
+          message: 'Staff and administrative accounts must sign in via the Admin Portal (/admin/login).',
+        });
+      }
+
+      if (portal === 'admin' && user.role !== Role.ADMIN && user.role !== Role.STAFF) {
+        if (user.role === Role.BENEFICIARY) {
+          throw new UnauthorizedException({
+            statusCode: 403,
+            error: 'WrongPortalAccess',
+            message: 'Beneficiary accounts cannot access the Admin Portal. Please sign in at the Beneficiary Portal (/beneficiary/login).',
+          });
+        }
+        throw new UnauthorizedException({
+          statusCode: 403,
+          error: 'WrongPortalAccess',
+          message: 'Donor accounts cannot access the Admin Portal. Please sign in at the Donor Portal (/login).',
+        });
+      }
+    }
+
     const accessToken = this.generateToken(user.id, user.email, user.role);
 
     const { password, ...userProfile } = user;
@@ -527,6 +576,9 @@ export class AuthService implements OnModuleInit {
     if (!user) {
       throw new UnauthorizedException('Beneficiary account not found');
     }
+    if (user.role !== Role.BENEFICIARY) {
+      throw new UnauthorizedException('Access denied: User is not a registered beneficiary.');
+    }
     if (!user.active) {
       throw new UnauthorizedException('Beneficiary portal access is disabled by administrator.');
     }
@@ -586,6 +638,9 @@ export class AuthService implements OnModuleInit {
     if (!user) {
       throw new UnauthorizedException('Beneficiary account not found');
     }
+    if (user.role !== Role.BENEFICIARY) {
+      throw new UnauthorizedException('Access denied: User is not a registered beneficiary.');
+    }
     if (!user.active) {
       throw new UnauthorizedException('Beneficiary portal access is disabled by administrator.');
     }
@@ -620,6 +675,9 @@ export class AuthService implements OnModuleInit {
     if (!user) {
       throw new UnauthorizedException('Beneficiary account not found');
     }
+    if (user.role !== Role.BENEFICIARY) {
+      throw new UnauthorizedException('Access denied: User is not a registered beneficiary.');
+    }
     const currentLogs = Array.isArray(user.communicationLogs) ? (user.communicationLogs as any[]) : [];
     const chatMessages = currentLogs
       .filter((l) => l && (l.isChatMessage || l.sender || l.text))
@@ -650,6 +708,9 @@ export class AuthService implements OnModuleInit {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
       throw new UnauthorizedException('Beneficiary account not found');
+    }
+    if (user.role !== Role.BENEFICIARY) {
+      throw new UnauthorizedException('Access denied: User is not a registered beneficiary.');
     }
     if (!user.active) {
       throw new UnauthorizedException('Beneficiary portal access is disabled by administrator.');

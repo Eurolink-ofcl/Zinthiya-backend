@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class LoginDto {
@@ -13,4 +13,9 @@ export class LoginDto {
   @IsNotEmpty({ message: 'Password is required' })
   @IsString({ message: 'Password must be a string' })
   password: string;
+
+  @ApiProperty({ example: 'donor', description: 'Target portal (beneficiary | donor | admin)', required: false })
+  @IsOptional()
+  @IsString()
+  portal?: string;
 }

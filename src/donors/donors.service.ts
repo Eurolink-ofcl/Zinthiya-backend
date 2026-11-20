@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateDonorDto } from './dto/update-donor.dto';
+import { Role } from '@prisma/client';
 
 @Injectable()
 export class DonorsService {
@@ -34,10 +35,19 @@ export class DonorsService {
       throw new NotFoundException('Donor not found');
     }
 
+    if (user.role !== Role.DONOR) {
+      throw new UnauthorizedException('Access denied: User is not a registered donor.');
+    }
+
     return user;
   }
 
   async updateProfile(userId: string, dto: UpdateDonorDto) {
+    const existing = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+    if (!existing || existing.role !== Role.DONOR) {
+      throw new UnauthorizedException('Access denied: User is not a registered donor.');
+    }
+
     return this.prisma.user.update({
       where: { id: userId },
       data: dto,
@@ -64,11 +74,16 @@ export class DonorsService {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
+        role: true,
         totalDonated: true,
         donationTier: true,
         lastDonationDate: true,
       },
     });
+
+    if (!user || user.role !== Role.DONOR) {
+      throw new UnauthorizedException('Access denied: User is not a registered donor.');
+    }
 
     const donationCount = await this.prisma.donation.count({
       where: { userId },
@@ -94,8 +109,13 @@ export class DonorsService {
         fullName: true,
         emailNewsletter: true,
         donationTier: true,
+        role: true,
       },
     });
+
+    if (!user || user.role !== Role.DONOR) {
+      throw new UnauthorizedException('Access denied: User is not a registered donor.');
+    }
 
     let broadcasts: any[] = [];
     try {
