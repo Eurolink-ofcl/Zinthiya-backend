@@ -23,10 +23,6 @@ export class DonationsService {
             if (upper in DonationTier) {
               return upper as DonationTier;
             }
-            if (matched.name.toUpperCase().includes('PLATINUM')) return DonationTier.PLATINUM;
-            if (matched.name.toUpperCase().includes('GOLD')) return DonationTier.GOLD;
-            if (matched.name.toUpperCase().includes('SILVER')) return DonationTier.SILVER;
-            if (matched.name.toUpperCase().includes('BRONZE')) return DonationTier.BRONZE;
             return DonationTier.SUPPORTER;
           }
           const lowest = sorted[sorted.length - 1];
@@ -39,10 +35,6 @@ export class DonationsService {
       console.warn('calculateTier db query warning:', e?.message || e);
     }
 
-    if (total >= 5000) return DonationTier.PLATINUM;
-    if (total >= 1000) return DonationTier.GOLD;
-    if (total >= 500) return DonationTier.SILVER;
-    if (total >= 100) return DonationTier.BRONZE;
     return DonationTier.SUPPORTER;
   }
 

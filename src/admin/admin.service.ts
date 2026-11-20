@@ -662,12 +662,18 @@ export class AdminService implements OnModuleInit {
 
     const newTotal = Number(aggregate._sum.amount || 0);
 
-    // 3. Compute new donor tier automatically
+    // 3. Compute new donor tier automatically based on database-configured tiers
     let newTier: DonationTier = DonationTier.SUPPORTER;
-    if (newTotal >= 1000) newTier = DonationTier.PLATINUM;
-    else if (newTotal >= 500) newTier = DonationTier.GOLD;
-    else if (newTotal >= 250) newTier = DonationTier.SILVER;
-    else if (newTotal >= 100) newTier = DonationTier.BRONZE;
+    const settings = await this.getSystemSettings();
+    const configuredTiers = settings?.donationTiers || [];
+    if (configuredTiers.length > 0) {
+      const sorted = [...configuredTiers].sort((a: any, b: any) => Number(b.minAmount) - Number(a.minAmount));
+      const matched = sorted.find((t: any) => newTotal >= Number(t.minAmount));
+      if (matched) {
+        const upper = (matched.id || matched.name || '').toUpperCase();
+        if (upper in DonationTier) newTier = upper as DonationTier;
+      }
+    }
 
     // 4. Update donor's total amount, tier, and last donation date
     const updatedDonor = await this.prisma.user.update({
@@ -1195,43 +1201,67 @@ export class AdminService implements OnModuleInit {
    * Retrieves all donations from PostgreSQL with full donor, campaign, and payment details.
    */
   async getAllDonations() {
-    const donations = await this.prisma.donation.findMany({
-      orderBy: { createdAt: 'desc' },
-      include: {
-        user: {
-          select: {
-            id: true,
-            fullName: true,
-            email: true,
-            phoneNumber: true,
-            townCity: true,
-            postcode: true,
-            country: true,
-            donationTier: true,
+    const [donations, settings] = await Promise.all([
+      this.prisma.donation.findMany({
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              phoneNumber: true,
+              townCity: true,
+              postcode: true,
+              country: true,
+              totalDonated: true,
+              donationTier: true,
+            },
+          },
+          campaign: {
+            select: {
+              id: true,
+              title: true,
+              targetAmount: true,
+              raisedAmount: true,
+            },
           },
         },
-        campaign: {
-          select: {
-            id: true,
-            title: true,
-            targetAmount: true,
-            raisedAmount: true,
-          },
-        },
-      },
-    });
+      }),
+      this.getSystemSettings(),
+    ]);
 
-    return donations.map((dn) => ({
-      ...dn,
-      amount: Number(dn.amount),
-      campaign: dn.campaign
-        ? {
-            ...dn.campaign,
-            targetAmount: Number(dn.campaign.targetAmount),
-            raisedAmount: Number(dn.campaign.raisedAmount),
-          }
-        : null,
-    }));
+    const tiers = settings?.donationTiers || [];
+    const sortedTiers = [...tiers].sort((a: any, b: any) => Number(b.minAmount) - Number(a.minAmount));
+
+    return donations.map((dn) => {
+      let resolvedUser: any = dn.user ? { ...dn.user } : null;
+      if (resolvedUser) {
+        const total = Number(resolvedUser.totalDonated || dn.amount || 0);
+        const matched = sortedTiers.find((t: any) => total >= Number(t.minAmount));
+        const activeFallback = sortedTiers[sortedTiers.length - 1]?.name || 'Supporter';
+        const tierName = matched?.name || activeFallback;
+        const tierColor = matched?.color || 'slate';
+
+        resolvedUser.totalDonated = total;
+        resolvedUser.tierName = tierName;
+        resolvedUser.tierColor = tierColor;
+        resolvedUser.donationTier = tierName;
+      }
+
+      return {
+        ...dn,
+        amount: Number(dn.amount),
+        user: resolvedUser,
+        campaign: dn.campaign
+          ? {
+              ...dn.campaign,
+              targetAmount: Number(dn.campaign.targetAmount),
+              raisedAmount: Number(dn.campaign.raisedAmount),
+            }
+          : null,
+      };
+    });
   }
 
   /**
@@ -1433,10 +1463,16 @@ export class AdminService implements OnModuleInit {
     const newTotal = Number(aggregate._sum.amount || 0);
 
     let newTier: DonationTier = DonationTier.SUPPORTER;
-    if (newTotal >= 1000) newTier = DonationTier.PLATINUM;
-    else if (newTotal >= 500) newTier = DonationTier.GOLD;
-    else if (newTotal >= 250) newTier = DonationTier.SILVER;
-    else if (newTotal >= 100) newTier = DonationTier.BRONZE;
+    const settings = await this.getSystemSettings();
+    const configuredTiers = settings?.donationTiers || [];
+    if (configuredTiers.length > 0) {
+      const sorted = [...configuredTiers].sort((a: any, b: any) => Number(b.minAmount) - Number(a.minAmount));
+      const matched = sorted.find((t: any) => newTotal >= Number(t.minAmount));
+      if (matched) {
+        const upper = (matched.id || matched.name || '').toUpperCase();
+        if (upper in DonationTier) newTier = upper as DonationTier;
+      }
+    }
 
     await this.prisma.user.update({
       where: { id: userId },
@@ -3693,11 +3729,7 @@ export class AdminService implements OnModuleInit {
         strictAuditLogging: true,
       },
       donationTiers: [
-        { id: 'SUPPORTER', name: 'Supporter', minAmount: 0, color: 'slate', description: 'General supporters giving up to £99' },
-        { id: 'BRONZE', name: 'Bronze Supporter', minAmount: 100, color: 'amber', description: 'Contributors giving £100 or more' },
-        { id: 'SILVER', name: 'Silver Patron', minAmount: 250, color: 'sky', description: 'Supporters giving £250 or more' },
-        { id: 'GOLD', name: 'Gold Benefactor', minAmount: 500, color: 'yellow', description: 'Major supporters giving £500 or more' },
-        { id: 'PLATINUM', name: 'Platinum Guardian', minAmount: 1000, color: 'purple', description: 'Principal donors giving £1,000 or more' },
+        { id: 'SUPPORTER', name: 'Supporter', minAmount: 0, color: 'slate', description: 'General supporters' },
       ],
     };
 
