@@ -600,7 +600,9 @@ export class AuthService implements OnModuleInit {
       }
     });
 
-    const totalAllocated = allAllocations.reduce((sum, a) => sum + Number(a.allocatedAmount || 0), 0);
+    const totalAllocated = allAllocations
+      .filter((a) => (a.status as any) !== 'CANCELLED' && (a.status as any) !== 'REJECTED')
+      .reduce((sum, a) => sum + Number(a.allocatedAmount || 0), 0);
     const totalDistributed = allAllocations
       .filter((a) => a.status === 'DISTRIBUTED')
       .reduce((sum, a) => sum + Number(a.distributedAmount || a.allocatedAmount || 0), 0);
@@ -612,38 +614,95 @@ export class AuthService implements OnModuleInit {
     // Zero hardcoded/mock notifications: derive dynamically and exclusively from user's real database records
     const notifications: any[] = [];
 
-    // 1. Real allocations notifications
+    // 1. Real allocations notifications (Approved, Cancelled, Declined, or Distributed)
     allAllocations.forEach((a: any) => {
       const amountStr = `£${Number(a.allocatedAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       const isDistributed = a.status === 'DISTRIBUTED' || a.status === 'PAID';
-      notifications.push({
-        id: `alloc-${a.id}`,
-        title: isDistributed
-          ? `${a.category || 'Relief'} Assistance Distributed (${amountStr})`
-          : `${a.category || 'Assistance'} Grant Awarded (${amountStr})`,
-        body: isDistributed
-          ? `Official disbursement of ${amountStr} for ${a.purpose || 'authorized community assistance'} via ${a.disbursementMethod || 'bank transfer'} has been completed.`
-          : `Trustee relief grant (Ref: ${a.referenceNumber || a.id}) of ${amountStr} has been approved and scheduled for payout.`,
-        time: a.createdAt ? new Date(a.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recent',
-        timestamp: a.createdAt ? new Date(a.createdAt).getTime() : 0,
-        unread: !isDistributed,
-        tag: isDistributed ? 'Disbursement' : 'Grant',
-      });
+      const isCancelled = a.status === 'CANCELLED';
+      const isRejected = a.status === 'REJECTED';
+      const refNumber = a.reference || a.referenceNumber || a.id;
+      const catName = a.categoryName || a.category || (a.assistanceType ? a.assistanceType.replace(/_/g, ' ') : 'Relief');
+
+      if (isCancelled) {
+        notifications.push({
+          id: `alloc-cancel-${a.id}`,
+          title: `${catName} Allocation Cancelled (${amountStr})`,
+          body: `Trustee relief allocation (Ref: ${refNumber}) of ${amountStr} has been cancelled by administration.`,
+          time: a.updatedAt ? new Date(a.updatedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recent',
+          timestamp: a.updatedAt ? new Date(a.updatedAt).getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0),
+          unread: true,
+          tag: 'Cancelled',
+        });
+      } else if (isRejected) {
+        notifications.push({
+          id: `alloc-reject-${a.id}`,
+          title: `${catName} Allocation Declined (${amountStr})`,
+          body: `Trustee relief allocation (Ref: ${refNumber}) of ${amountStr} was reviewed and declined.`,
+          time: a.updatedAt ? new Date(a.updatedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recent',
+          timestamp: a.updatedAt ? new Date(a.updatedAt).getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0),
+          unread: true,
+          tag: 'Declined',
+        });
+      } else if (isDistributed) {
+        notifications.push({
+          id: `alloc-dist-${a.id}`,
+          title: `${catName} Assistance Distributed (${amountStr})`,
+          body: `Official disbursement of ${amountStr} for ${a.purpose || 'authorized community assistance'} via ${a.disbursementMethod || 'bank transfer'} has been completed.`,
+          time: a.distributionDate ? new Date(a.distributionDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : (a.createdAt ? new Date(a.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recent'),
+          timestamp: a.distributionDate ? new Date(a.distributionDate).getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0),
+          unread: false,
+          tag: 'Disbursement',
+        });
+      } else {
+        // Active / Approved allocation
+        notifications.push({
+          id: `alloc-appr-${a.id}`,
+          title: `${catName} Grant Approved (${amountStr})`,
+          body: `Trustee relief grant (Ref: ${refNumber}) of ${amountStr} has been approved by the Trustees Relief Committee.`,
+          time: a.createdAt ? new Date(a.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recent',
+          timestamp: a.createdAt ? new Date(a.createdAt).getTime() : 0,
+          unread: true,
+          tag: 'Approved',
+        });
+      }
     });
 
-    // 2. Real support requests notifications
+    // 2. Real support requests notifications (Approved, Rejected, or Under Assessment)
     user.beneficiaryRequests.forEach((req: any) => {
-      const isPending = req.status === 'PENDING';
-      const statusLabel = req.status === 'APPROVED' ? 'Approved' : isPending ? 'Under Assessment' : req.status === 'COMPLETED' ? 'Completed' : req.status;
-      notifications.push({
-        id: `req-${req.id}`,
-        title: `Support Application: ${req.serviceType} – ${statusLabel}`,
-        body: `Your application for ${req.serviceType} (Urgency: ${req.urgency || 'Standard'}) is ${isPending ? 'under active assessment by your assigned advocate.' : `marked as ${statusLabel.toLowerCase()}.`}`,
-        time: req.createdAt ? new Date(req.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recent',
-        timestamp: req.createdAt ? new Date(req.createdAt).getTime() : 0,
-        unread: isPending,
-        tag: 'Application',
-      });
+      const isApproved = req.status === 'APPROVED';
+      const isRejected = req.status === 'REJECTED' || req.status === 'DECLINED';
+
+      if (isApproved) {
+        notifications.push({
+          id: `req-appr-${req.id}`,
+          title: `Support Application Approved: ${req.serviceType}`,
+          body: `Your emergency support application for ${req.serviceType} has been approved by the casework team.`,
+          time: req.resolutionDate ? new Date(req.resolutionDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : (req.createdAt ? new Date(req.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recent'),
+          timestamp: req.resolutionDate ? new Date(req.resolutionDate).getTime() : (req.createdAt ? new Date(req.createdAt).getTime() : 0),
+          unread: true,
+          tag: 'Approved',
+        });
+      } else if (isRejected) {
+        notifications.push({
+          id: `req-rej-${req.id}`,
+          title: `Support Application Declined: ${req.serviceType}`,
+          body: `Your support application for ${req.serviceType} was reviewed and declined at this time.`,
+          time: req.resolutionDate ? new Date(req.resolutionDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : (req.createdAt ? new Date(req.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recent'),
+          timestamp: req.resolutionDate ? new Date(req.resolutionDate).getTime() : (req.createdAt ? new Date(req.createdAt).getTime() : 0),
+          unread: true,
+          tag: 'Declined',
+        });
+      } else {
+        notifications.push({
+          id: `req-pend-${req.id}`,
+          title: `Support Application: ${req.serviceType} – Under Assessment`,
+          body: `Your application for ${req.serviceType} (Urgency: ${req.urgency || 'Standard'}) is under active assessment by your assigned advocate.`,
+          time: req.createdAt ? new Date(req.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recent',
+          timestamp: req.createdAt ? new Date(req.createdAt).getTime() : 0,
+          unread: false,
+          tag: 'Application',
+        });
+      }
     });
 
     // 3. Real communication messages from caseworker
