@@ -71,7 +71,7 @@ export class DonationsService {
       data: {
         amount: dto.amount,
         type: dto.type || 'ONE_OFF',
-        giftAid: dto.giftAid ?? false,
+        giftAid: false,
         paymentMethod: dto.paymentMethod || 'Debit/Credit Card',
         userId: userId || null,
         campaignId: dto.campaignId || null,

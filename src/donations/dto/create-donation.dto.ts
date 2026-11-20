@@ -16,7 +16,7 @@ export class CreateDonationDto {
   @IsEnum(DonationType)
   type?: DonationType;
 
-  @ApiPropertyOptional({ example: true, description: 'Gift Aid UK 25% tax relief' })
+  @ApiPropertyOptional({ example: false })
   @IsOptional()
   @IsBoolean()
   giftAid?: boolean;

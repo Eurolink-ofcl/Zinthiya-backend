@@ -200,8 +200,8 @@ export class AdminService implements OnModuleInit {
 
     let oneOffTotal = 0;
     let recurringTotal = 0;
-    let giftAidEligibleTotal = 0;
-    let giftAidTaxReclaimed = 0;
+    const giftAidEligibleTotal = 0;
+    const giftAidTaxReclaimed = 0;
 
     allCompletedDonations.forEach((d) => {
       const amt = Number(d.amount);
@@ -209,10 +209,6 @@ export class AdminService implements OnModuleInit {
         recurringTotal += amt;
       } else {
         oneOffTotal += amt;
-      }
-      if (d.giftAid) {
-        giftAidEligibleTotal += amt;
-        giftAidTaxReclaimed += amt * 0.25;
       }
     });
 
@@ -644,7 +640,7 @@ export class AdminService implements OnModuleInit {
         amount: data.amount,
         type: data.type || DonationType.ONE_OFF,
         status: DonationStatus.COMPLETED,
-        giftAid: data.giftAid ?? false,
+        giftAid: false,
         paymentMethod: data.paymentMethod || 'Credit/Debit Card',
         reference: ref,
         userId: donorId,
@@ -1332,7 +1328,7 @@ export class AdminService implements OnModuleInit {
         currency: 'GBP',
         type: donationType,
         status: donationStatus,
-        giftAid: Boolean(data.giftAid),
+        giftAid: false,
         paymentMethod: data.paymentMethod || 'Cash',
         reference: ref,
         notes: data.notes?.trim() || null,
@@ -2800,17 +2796,15 @@ export class AdminService implements OnModuleInit {
     const externalDonationsTotal = filteredDonations
       .filter((d) => d.campaign?.campaignType === 'EXTERNAL')
       .reduce((sum, d) => sum + Number(d.amount), 0);
-    const giftAidTotal = filteredDonations
-      .filter((d) => d.giftAid)
-      .reduce((sum, d) => sum + Number(d.amount) * 0.25, 0);
+    const giftAidTotal = 0;
 
     const donationsList = filteredDonations.map((d: any) => ({
       id: d.id,
       reference: d.reference || `DON-${d.id.slice(0, 8).toUpperCase()}`,
       amount: Number(d.amount),
       type: d.type,
-      giftAid: d.giftAid,
-      giftAidAmount: d.giftAid ? Number(d.amount) * 0.25 : 0,
+      giftAid: false,
+      giftAidAmount: 0,
       createdAt: d.createdAt,
       donorName: d.user?.fullName || 'Anonymous Supporter',
       donorEmail: d.user?.email || 'N/A',
@@ -3469,7 +3463,7 @@ export class AdminService implements OnModuleInit {
         {
           key: 'FINANCE_OFFICER',
           title: 'Finance & Compliance Officer',
-          description: 'Offline donation recording, voucher disbursements, Gift Aid reconciliations, Charity Commission financial audit trail.',
+          description: 'Offline donation recording, voucher disbursements, financial audit reconciliations, Charity Commission financial audit trail.',
           department: 'Finance & Grants',
           defaultPermissions: [
             'donations:manage',
@@ -3685,7 +3679,6 @@ export class AdminService implements OnModuleInit {
         contactEmail: 'info@zinthiyatrust.org',
         contactPhone: '0116 254 5168',
         defaultCurrency: 'GBP (£)',
-        giftAidRate: 25,
       },
       notifications: {
         emailOnDonation: true,
