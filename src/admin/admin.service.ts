@@ -735,6 +735,21 @@ export class AdminService implements OnModuleInit {
    * Includes total target, raised amounts, donations count, and complete progress.
    */
   async getAllCampaigns() {
+    // Auto-synchronize any campaign where active=true but status was left as DRAFT
+    try {
+      await this.prisma.campaign.updateMany({
+        where: {
+          active: true,
+          status: 'DRAFT',
+        },
+        data: {
+          status: 'ACTIVE',
+        },
+      });
+    } catch (e) {
+      // ignore
+    }
+
     const campaigns = await this.prisma.campaign.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
@@ -763,12 +778,17 @@ export class AdminService implements OnModuleInit {
       const raised = Number(c.raisedAmount);
       const percentage = target > 0 ? Math.min(100, Math.round((raised / target) * 100)) : 0;
       const isArchived = Boolean(c.archived) || c.status === 'ARCHIVED';
+      const isActive = !isArchived && Boolean(c.active);
+      let resolvedStatus = isArchived ? 'ARCHIVED' : (c.status || 'ACTIVE');
+      if (isActive && resolvedStatus === 'DRAFT') {
+        resolvedStatus = 'ACTIVE';
+      }
 
       return {
         ...c,
         archived: isArchived,
-        active: isArchived ? false : c.active,
-        status: isArchived ? 'ARCHIVED' : (c.status || 'ACTIVE'),
+        active: isActive,
+        status: resolvedStatus,
         targetAmount: target,
         raisedAmount: raised,
         progressPercentage: percentage,
@@ -815,9 +835,18 @@ export class AdminService implements OnModuleInit {
     const target = Number(campaign.targetAmount);
     const raised = Number(campaign.raisedAmount);
     const percentage = target > 0 ? Math.min(100, Math.round((raised / target) * 100)) : 0;
+    const isArchived = Boolean(campaign.archived) || campaign.status === 'ARCHIVED';
+    const isActive = !isArchived && Boolean(campaign.active);
+    let resolvedStatus = isArchived ? 'ARCHIVED' : (campaign.status || 'ACTIVE');
+    if (isActive && resolvedStatus === 'DRAFT') {
+      resolvedStatus = 'ACTIVE';
+    }
 
     return {
       ...campaign,
+      archived: isArchived,
+      active: isActive,
+      status: resolvedStatus,
       targetAmount: target,
       raisedAmount: raised,
       progressPercentage: percentage,
@@ -952,9 +981,15 @@ export class AdminService implements OnModuleInit {
     if (data.campaignUrl !== undefined) updateData.campaignUrl = data.campaignUrl?.trim() || null;
     if (data.status !== undefined) {
       updateData.status = data.status;
-      if (data.status === 'ARCHIVED') updateData.archived = true;
-      if (data.status === 'ACTIVE') updateData.active = true;
-      if (data.status === 'DRAFT' || data.status === 'COMPLETED') updateData.active = false;
+      if (data.status === 'ARCHIVED') {
+        updateData.archived = true;
+        updateData.active = false;
+      } else if (data.status === 'ACTIVE') {
+        updateData.active = true;
+        updateData.archived = false;
+      } else if (data.status === 'DRAFT' || data.status === 'COMPLETED' || data.status === 'PAUSED') {
+        updateData.active = false;
+      }
     }
     if (data.title !== undefined) updateData.title = data.title.trim();
     if (data.description !== undefined) updateData.description = data.description.trim();
@@ -968,8 +1003,23 @@ export class AdminService implements OnModuleInit {
     if (data.endDate !== undefined) {
       updateData.endDate = data.endDate ? new Date(data.endDate) : null;
     }
-    if (data.active !== undefined) updateData.active = Boolean(data.active);
-    if (data.archived !== undefined) updateData.archived = Boolean(data.archived);
+    if (data.active !== undefined) {
+      const activeBool = Boolean(data.active);
+      updateData.active = activeBool;
+      if (activeBool && (!updateData.status || updateData.status === 'DRAFT' || updateData.status === 'PAUSED')) {
+        updateData.status = 'ACTIVE';
+      } else if (!activeBool && (!updateData.status || updateData.status === 'ACTIVE')) {
+        updateData.status = 'PAUSED';
+      }
+    }
+    if (data.archived !== undefined) {
+      const archivedBool = Boolean(data.archived);
+      updateData.archived = archivedBool;
+      if (archivedBool) {
+        updateData.active = false;
+        updateData.status = 'ARCHIVED';
+      }
+    }
     if (data.corporateSponsor !== undefined) updateData.corporateSponsor = data.corporateSponsor?.trim() || null;
     if (data.fundraisingPageId !== undefined) updateData.fundraisingPageId = data.fundraisingPageId?.trim() || null;
     if (data.fundraisingPageName !== undefined) updateData.fundraisingPageName = data.fundraisingPageName?.trim() || null;
@@ -984,14 +1034,6 @@ export class AdminService implements OnModuleInit {
     if (data.utmCampaign !== undefined) updateData.utmCampaign = data.utmCampaign?.trim() || null;
     if (data.utmContent !== undefined) updateData.utmContent = data.utmContent?.trim() || null;
     if (data.utmTerm !== undefined) updateData.utmTerm = data.utmTerm?.trim() || null;
-    if (data.startDate !== undefined) {
-      updateData.startDate = data.startDate ? new Date(data.startDate) : null;
-    }
-    if (data.endDate !== undefined) {
-      updateData.endDate = data.endDate ? new Date(data.endDate) : null;
-    }
-    if (data.active !== undefined) updateData.active = Boolean(data.active);
-    if (data.archived !== undefined) updateData.archived = Boolean(data.archived);
 
     const updated = await this.prisma.campaign.update({
       where: { id },
@@ -1033,9 +1075,17 @@ export class AdminService implements OnModuleInit {
       throw new NotFoundException(`Campaign with ID ${id} not found.`);
     }
 
+    const newActive = Boolean(active);
+    const newStatus = newActive
+      ? 'ACTIVE'
+      : (existing.status === 'ACTIVE' ? 'PAUSED' : existing.status);
+
     return this.prisma.campaign.update({
       where: { id },
-      data: { active: Boolean(active) },
+      data: {
+        active: newActive,
+        status: newStatus,
+      },
     });
   }
 
