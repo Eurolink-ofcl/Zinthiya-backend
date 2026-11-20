@@ -29,6 +29,12 @@ export class DonorsController {
     return this.donorsService.getStats(req.user.id);
   }
 
+  @Get('giving-tiers')
+  @ApiOperation({ summary: 'Get current admin-configured giving tiers and thresholds' })
+  async getGivingTiers() {
+    return this.donorsService.getConfiguredTiers();
+  }
+
   @Get('newsletters')
   @ApiOperation({ summary: 'Get published community announcements and newsletters for donor' })
   async getNewsletters(@Request() req: any) {

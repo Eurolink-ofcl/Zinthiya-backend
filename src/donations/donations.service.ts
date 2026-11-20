@@ -7,7 +7,38 @@ import { DonationTier } from '@prisma/client';
 export class DonationsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private calculateTier(total: number): DonationTier {
+  private async calculateTier(total: number): Promise<DonationTier> {
+    try {
+      const rows: any[] = await this.prisma.$queryRawUnsafe(`
+        SELECT value FROM system_settings WHERE key = 'main_config' LIMIT 1;
+      `);
+      if (rows && rows.length > 0 && rows[0].value) {
+        const val = typeof rows[0].value === 'string' ? JSON.parse(rows[0].value) : rows[0].value;
+        const tiers = Array.isArray(val?.donationTiers) ? val.donationTiers : [];
+        if (tiers.length > 0) {
+          const sorted = [...tiers].sort((a: any, b: any) => Number(b.minAmount) - Number(a.minAmount));
+          const matched = sorted.find((t: any) => total >= Number(t.minAmount));
+          if (matched) {
+            const upper = (matched.id || matched.name || '').toUpperCase();
+            if (upper in DonationTier) {
+              return upper as DonationTier;
+            }
+            if (matched.name.toUpperCase().includes('PLATINUM')) return DonationTier.PLATINUM;
+            if (matched.name.toUpperCase().includes('GOLD')) return DonationTier.GOLD;
+            if (matched.name.toUpperCase().includes('SILVER')) return DonationTier.SILVER;
+            if (matched.name.toUpperCase().includes('BRONZE')) return DonationTier.BRONZE;
+            return DonationTier.SUPPORTER;
+          }
+          const lowest = sorted[sorted.length - 1];
+          const lowestUpper = (lowest?.id || lowest?.name || '').toUpperCase();
+          if (lowestUpper in DonationTier) return lowestUpper as DonationTier;
+          return DonationTier.SUPPORTER;
+        }
+      }
+    } catch (e: any) {
+      console.warn('calculateTier db query warning:', e?.message || e);
+    }
+
     if (total >= 5000) return DonationTier.PLATINUM;
     if (total >= 1000) return DonationTier.GOLD;
     if (total >= 500) return DonationTier.SILVER;
@@ -82,7 +113,7 @@ export class DonationsService {
 
       if (user) {
         const newTotal = Number(user.totalDonated) + Number(dto.amount);
-        const newTier = this.calculateTier(newTotal);
+        const newTier = await this.calculateTier(newTotal);
 
         await this.prisma.user.update({
           where: { id: userId },

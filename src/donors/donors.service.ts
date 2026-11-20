@@ -1,11 +1,65 @@
 import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateDonorDto } from './dto/update-donor.dto';
-import { Role } from '@prisma/client';
+import { Role, DonationTier } from '@prisma/client';
 
 @Injectable()
 export class DonorsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Retrieves the admin-configured giving tiers from system settings.
+   */
+  async getConfiguredTiers(): Promise<any[]> {
+    try {
+      const rows: any[] = await this.prisma.$queryRawUnsafe(`
+        SELECT value FROM system_settings WHERE key = 'main_config' LIMIT 1;
+      `);
+      if (rows && rows.length > 0 && rows[0].value) {
+        const val = typeof rows[0].value === 'string' ? JSON.parse(rows[0].value) : rows[0].value;
+        if (Array.isArray(val?.donationTiers) && val.donationTiers.length > 0) {
+          return val.donationTiers;
+        }
+      }
+    } catch (e: any) {
+      console.warn('getConfiguredTiers db error:', e?.message || e);
+    }
+    return [
+      { id: 'SUPPORTER', name: 'Supporter', minAmount: 0, color: 'slate', description: 'General supporters' },
+    ];
+  }
+
+  /**
+   * Evaluates the donor's giving tier dynamically based on their total donated amount
+   * and the admin-configured tier thresholds.
+   */
+  async resolveTierForTotal(totalAmount: number, userTier?: string) {
+    const tiers = await this.getConfiguredTiers();
+    const sorted = [...tiers].sort((a: any, b: any) => Number(b.minAmount) - Number(a.minAmount));
+    const matched = sorted.find((t: any) => Number(totalAmount) >= Number(t.minAmount));
+
+    let tierName = 'Supporter';
+    let tierColor = 'slate';
+    let tierId = 'SUPPORTER';
+
+    if (matched) {
+      tierName = matched.name;
+      tierColor = matched.color || 'slate';
+      tierId = matched.id || matched.name;
+    } else if (sorted.length > 0) {
+      const lowest = sorted[sorted.length - 1];
+      tierName = lowest.name;
+      tierColor = lowest.color || 'slate';
+      tierId = lowest.id || lowest.name;
+    }
+
+    return {
+      tierId,
+      tierName,
+      tierColor,
+      configuredTiers: sorted,
+    };
+  }
 
   async getProfile(userId: string) {
     const user = await this.prisma.user.findUnique({
@@ -39,7 +93,15 @@ export class DonorsService {
       throw new UnauthorizedException('Access denied: User is not a registered donor.');
     }
 
-    return user;
+    const tierInfo = await this.resolveTierForTotal(Number(user.totalDonated || 0), user.donationTier);
+
+    return {
+      ...user,
+      donationTier: tierInfo.tierName,
+      tierName: tierInfo.tierName,
+      tierColor: tierInfo.tierColor,
+      configuredTiers: tierInfo.configuredTiers,
+    };
   }
 
   async updateProfile(userId: string, dto: UpdateDonorDto) {
@@ -48,7 +110,7 @@ export class DonorsService {
       throw new UnauthorizedException('Access denied: User is not a registered donor.');
     }
 
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id: userId },
       data: dto,
       select: {
@@ -68,6 +130,16 @@ export class DonorsService {
         donationTier: true,
       },
     });
+
+    const tierInfo = await this.resolveTierForTotal(Number(updated.totalDonated || 0), updated.donationTier);
+
+    return {
+      ...updated,
+      donationTier: tierInfo.tierName,
+      tierName: tierInfo.tierName,
+      tierColor: tierInfo.tierColor,
+      configuredTiers: tierInfo.configuredTiers,
+    };
   }
 
   async getStats(userId: string) {
@@ -89,9 +161,25 @@ export class DonorsService {
       where: { userId },
     });
 
+    const tierInfo = await this.resolveTierForTotal(Number(user?.totalDonated || 0), user?.donationTier);
+
+    // If the database has an outdated enum like GOLD, heal it in the background if it matches a valid enum
+    if (tierInfo.tierId in DonationTier || tierInfo.tierName.toUpperCase() in DonationTier) {
+      const enumVal = ((tierInfo.tierId in DonationTier ? tierInfo.tierId : tierInfo.tierName.toUpperCase())) as DonationTier;
+      if (user.donationTier !== enumVal) {
+        await this.prisma.user.update({
+          where: { id: userId },
+          data: { donationTier: enumVal },
+        }).catch(() => {});
+      }
+    }
+
     return {
       totalDonated: user?.totalDonated || 0,
-      donationTier: user?.donationTier || 'SUPPORTER',
+      donationTier: tierInfo.tierName,
+      tierName: tierInfo.tierName,
+      tierColor: tierInfo.tierColor,
+      configuredTiers: tierInfo.configuredTiers,
       totalDonations: donationCount,
       lastDonationDate: user?.lastDonationDate,
     };
