@@ -422,7 +422,8 @@ export class AdminController {
         const token = authHeader.substring(7);
         const parts = token.split('.');
         if (parts.length === 3) {
-          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+          const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+          const payload = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
           authEmail = payload.email || '';
         }
       } catch {}
@@ -441,7 +442,8 @@ export class AdminController {
         const token = authHeader.substring(7);
         const parts = token.split('.');
         if (parts.length === 3) {
-          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+          const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+          const payload = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
           authEmail = payload.email || '';
         }
       } catch {}
@@ -460,7 +462,8 @@ export class AdminController {
         const token = authHeader.substring(7);
         const parts = token.split('.');
         if (parts.length === 3) {
-          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+          const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+          const payload = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
           authEmail = payload.email || '';
         }
       } catch {}
