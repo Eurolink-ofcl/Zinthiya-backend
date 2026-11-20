@@ -3545,32 +3545,35 @@ export class AdminService implements OnModuleInit {
    * Retrieves the current administrator profile
    */
   async getAdminProfile(email?: string) {
-    const targetEmail = (email || 'admin@zinthiyatrust.org').toLowerCase().trim();
-    let admin = await this.prisma.user.findUnique({
-      where: { email: targetEmail },
-      select: {
-        id: true,
-        email: true,
-        fullName: true,
-        phoneNumber: true,
-        address: true,
-        townCity: true,
-        postcode: true,
-        country: true,
-        role: true,
-        staffRole: true,
-        department: true,
-        jobTitle: true,
-        emergencyContact: true,
-        permissions: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
+    const targetEmail = (email || '').toLowerCase().trim();
+    let user = null;
+    if (targetEmail) {
+      user = await this.prisma.user.findUnique({
+        where: { email: targetEmail },
+        select: {
+          id: true,
+          email: true,
+          fullName: true,
+          phoneNumber: true,
+          address: true,
+          townCity: true,
+          postcode: true,
+          country: true,
+          role: true,
+          staffRole: true,
+          department: true,
+          jobTitle: true,
+          emergencyContact: true,
+          permissions: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+    }
 
-    if (!admin) {
-      // Fallback to first ADMIN
-      admin = await this.prisma.user.findFirst({
+    if (!user) {
+      // Fallback to first ADMIN only if no specific user email was matched
+      user = await this.prisma.user.findFirst({
         where: { role: Role.ADMIN },
         select: {
           id: true,
@@ -3593,21 +3596,26 @@ export class AdminService implements OnModuleInit {
       });
     }
 
-    return admin;
+    return user;
   }
 
   /**
-   * Updates admin profile information
+   * Updates admin or staff profile information
    */
   async updateAdminProfile(body: any) {
-    const email = (body.email || 'admin@zinthiyatrust.org').toLowerCase().trim();
-    const existing = await this.prisma.user.findUnique({ where: { email } });
+    const email = (body.email || '').toLowerCase().trim();
+    let existing = email ? await this.prisma.user.findUnique({ where: { email } }) : null;
     if (!existing) {
-      throw new NotFoundException(`Admin user ${email} not found.`);
+      existing = await this.prisma.user.findFirst({ where: { role: Role.ADMIN } });
+    }
+    if (!existing) {
+      throw new NotFoundException(`User profile not found.`);
     }
 
     const data: any = {};
-    if (body.email !== undefined) data.email = body.email.toLowerCase().trim();
+    if (body.email !== undefined && body.email.trim() && body.email.toLowerCase().trim() === existing.email) {
+      data.email = body.email.toLowerCase().trim();
+    }
     if (body.fullName !== undefined) data.fullName = body.fullName.trim();
     if (body.phoneNumber !== undefined) data.phoneNumber = body.phoneNumber.trim();
     if (body.department !== undefined) data.department = body.department.trim();
@@ -3618,7 +3626,7 @@ export class AdminService implements OnModuleInit {
     if (body.postcode !== undefined) data.postcode = body.postcode.trim();
 
     const updated = await this.prisma.user.update({
-      where: { email },
+      where: { id: existing.id },
       data,
       select: {
         id: true,
@@ -3633,6 +3641,7 @@ export class AdminService implements OnModuleInit {
         postcode: true,
         role: true,
         staffRole: true,
+        permissions: true,
       },
     });
 
@@ -3641,20 +3650,23 @@ export class AdminService implements OnModuleInit {
       entityType: 'Staff',
       entityId: updated.id,
       entityTitle: updated.fullName,
-      details: `Administrator profile updated for ${updated.fullName}.`,
+      details: `Profile updated for ${updated.fullName} (${updated.email}).`,
     });
 
     return updated;
   }
 
   /**
-   * Securely changes admin password
+   * Securely changes admin or staff password
    */
   async changeAdminPassword(body: any) {
-    const email = (body.email || 'admin@zinthiyatrust.org').toLowerCase().trim();
-    const existing = await this.prisma.user.findUnique({ where: { email } });
+    const email = (body.email || '').toLowerCase().trim();
+    let existing = email ? await this.prisma.user.findUnique({ where: { email } }) : null;
     if (!existing) {
-      throw new NotFoundException(`Admin account ${email} not found.`);
+      existing = await this.prisma.user.findFirst({ where: { role: Role.ADMIN } });
+    }
+    if (!existing) {
+      throw new NotFoundException(`Account ${email} not found.`);
     }
 
     if (!body.newPassword || body.newPassword.length < 8) {
@@ -3670,7 +3682,7 @@ export class AdminService implements OnModuleInit {
 
     const hashedPassword = await bcrypt.hash(body.newPassword, 10);
     await this.prisma.user.update({
-      where: { email },
+      where: { id: existing.id },
       data: { password: hashedPassword },
     });
 
@@ -3679,7 +3691,7 @@ export class AdminService implements OnModuleInit {
       entityType: 'Staff',
       entityId: existing.id,
       entityTitle: existing.fullName,
-      details: `Password changed successfully for admin ${existing.fullName}.`,
+      details: `Password changed successfully for account ${existing.fullName} (${existing.email}).`,
     });
 
     return { success: true, message: 'Password updated successfully. Please use your new password on next login.' };

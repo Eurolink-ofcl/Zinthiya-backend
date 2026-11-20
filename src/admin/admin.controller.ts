@@ -413,21 +413,60 @@ export class AdminController {
   // --- Admin Profile, Settings & Newsletter Endpoints ---
 
   @Get('profile')
-  @ApiOperation({ summary: 'Get current admin user profile' })
-  async getProfile(@Query('email') email?: string) {
-    return this.adminService.getAdminProfile(email);
+  @ApiOperation({ summary: 'Get current user profile (admin or staff)' })
+  async getProfile(@Request() req: any, @Query('email') email?: string) {
+    let authEmail = '';
+    const authHeader = req?.headers?.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.substring(7);
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+          authEmail = payload.email || '';
+        }
+      } catch {}
+    }
+    const targetEmail = email || authEmail || req?.user?.email;
+    return this.adminService.getAdminProfile(targetEmail);
   }
 
   @Put('profile')
-  @ApiOperation({ summary: 'Update admin profile information' })
-  async updateProfile(@Body() body: any) {
-    return this.adminService.updateAdminProfile(body);
+  @ApiOperation({ summary: 'Update profile information (admin or staff)' })
+  async updateProfile(@Request() req: any, @Body() body: any) {
+    let authEmail = '';
+    const authHeader = req?.headers?.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.substring(7);
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+          authEmail = payload.email || '';
+        }
+      } catch {}
+    }
+    const targetEmail = body?.email || authEmail || req?.user?.email;
+    return this.adminService.updateAdminProfile({ ...body, email: targetEmail });
   }
 
   @Post('change-password')
-  @ApiOperation({ summary: 'Change admin account password' })
-  async changePassword(@Body() body: any) {
-    return this.adminService.changeAdminPassword(body);
+  @ApiOperation({ summary: 'Change account password (admin or staff)' })
+  async changePassword(@Request() req: any, @Body() body: any) {
+    let authEmail = '';
+    const authHeader = req?.headers?.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.substring(7);
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+          authEmail = payload.email || '';
+        }
+      } catch {}
+    }
+    const targetEmail = body?.email || authEmail || req?.user?.email;
+    return this.adminService.changeAdminPassword({ ...body, email: targetEmail });
   }
 
   @Get('settings')
