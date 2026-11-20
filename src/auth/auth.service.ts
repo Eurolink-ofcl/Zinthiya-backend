@@ -609,6 +609,63 @@ export class AuthService implements OnModuleInit {
       orderBy: { name: 'asc' },
     });
 
+    // Zero hardcoded/mock notifications: derive dynamically and exclusively from user's real database records
+    const notifications: any[] = [];
+
+    // 1. Real allocations notifications
+    allAllocations.forEach((a: any) => {
+      const amountStr = `£${Number(a.allocatedAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const isDistributed = a.status === 'DISTRIBUTED' || a.status === 'PAID';
+      notifications.push({
+        id: `alloc-${a.id}`,
+        title: isDistributed
+          ? `${a.category || 'Relief'} Assistance Distributed (${amountStr})`
+          : `${a.category || 'Assistance'} Grant Awarded (${amountStr})`,
+        body: isDistributed
+          ? `Official disbursement of ${amountStr} for ${a.purpose || 'authorized community assistance'} via ${a.disbursementMethod || 'bank transfer'} has been completed.`
+          : `Trustee relief grant (Ref: ${a.referenceNumber || a.id}) of ${amountStr} has been approved and scheduled for payout.`,
+        time: a.createdAt ? new Date(a.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recent',
+        timestamp: a.createdAt ? new Date(a.createdAt).getTime() : 0,
+        unread: !isDistributed,
+        tag: isDistributed ? 'Disbursement' : 'Grant',
+      });
+    });
+
+    // 2. Real support requests notifications
+    user.beneficiaryRequests.forEach((req: any) => {
+      const isPending = req.status === 'PENDING';
+      const statusLabel = req.status === 'APPROVED' ? 'Approved' : isPending ? 'Under Assessment' : req.status === 'COMPLETED' ? 'Completed' : req.status;
+      notifications.push({
+        id: `req-${req.id}`,
+        title: `Support Application: ${req.serviceType} – ${statusLabel}`,
+        body: `Your application for ${req.serviceType} (Urgency: ${req.urgency || 'Standard'}) is ${isPending ? 'under active assessment by your assigned advocate.' : `marked as ${statusLabel.toLowerCase()}.`}`,
+        time: req.createdAt ? new Date(req.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recent',
+        timestamp: req.createdAt ? new Date(req.createdAt).getTime() : 0,
+        unread: isPending,
+        tag: 'Application',
+      });
+    });
+
+    // 3. Real communication messages from caseworker
+    const commLogs = Array.isArray(user.communicationLogs) ? (user.communicationLogs as any[]) : [];
+    commLogs
+      .filter((m: any) => m && (m.sender === 'staff' || m.sender === 'caseworker'))
+      .forEach((msg: any, idx: number) => {
+        const textContent = msg.text || (msg.type === 'voice' ? (msg.voiceTranscript ? `"${msg.voiceTranscript}"` : 'Voice note received from caseworker.') : 'Message received from caseworker.');
+        notifications.push({
+          id: `msg-${msg.id || idx}`,
+          title: `Caseworker Message from ${msg.name || user.assignedAdvocate || 'Dedicated Advocate'}`,
+          body: textContent.length > 100 ? `${textContent.slice(0, 100)}...` : textContent,
+          time: msg.time || (msg.timestamp ? new Date(msg.timestamp).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : 'Recent'),
+          timestamp: msg.timestamp ? new Date(msg.timestamp).getTime() : 0,
+          unread: false,
+          tag: 'Message',
+        });
+      });
+
+    // Sort newest first
+    notifications.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
     const { password, ...safeUser } = user;
     return {
       statusCode: 200,
@@ -623,6 +680,7 @@ export class AuthService implements OnModuleInit {
         },
         requests: user.beneficiaryRequests,
         allocations: allAllocations,
+        notifications,
         categories,
         stats: {
           totalAllocated,
