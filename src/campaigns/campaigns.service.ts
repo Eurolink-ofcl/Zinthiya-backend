@@ -68,9 +68,47 @@ export class CampaignsService implements OnModuleInit {
     }
   }
 
-  async findAll() {
+  async findAll(page?: number, limit?: number) {
+    const where = { active: true, archived: false, status: { not: 'ARCHIVED' } };
+
+    if (page !== undefined || limit !== undefined) {
+      const pageNum = Math.max(1, Number(page) || 1);
+      const limitNum = Math.max(1, Math.min(100, Number(limit) || 10));
+      const skip = (pageNum - 1) * limitNum;
+
+      const [total, data] = await Promise.all([
+        this.prisma.campaign.count({ where }),
+        this.prisma.campaign.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limitNum,
+          include: {
+            _count: {
+              select: { donations: true },
+            },
+          },
+        }),
+      ]);
+
+      const totalPages = Math.ceil(total / limitNum) || 1;
+
+      return {
+        data,
+        campaigns: data,
+        pagination: {
+          total,
+          page: pageNum,
+          limit: limitNum,
+          totalPages,
+          hasNextPage: pageNum < totalPages,
+          hasPreviousPage: pageNum > 1,
+        },
+      };
+    }
+
     return this.prisma.campaign.findMany({
-      where: { active: true, archived: false, status: { not: 'ARCHIVED' } },
+      where,
       orderBy: { createdAt: 'desc' },
       include: {
         _count: {

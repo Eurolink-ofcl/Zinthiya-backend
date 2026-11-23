@@ -188,7 +188,7 @@ export class DonorsService {
   /**
    * Published community announcements and newsletters for registered donor dashboard
    */
-  async getNewsletters(userId: string) {
+  async getNewsletters(userId: string, page?: number, limit?: number) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -205,13 +205,35 @@ export class DonorsService {
       throw new UnauthorizedException('Access denied: User is not a registered donor.');
     }
 
+    const isPaginated = page !== undefined || limit !== undefined;
+    const pageNum = Math.max(1, Number(page) || 1);
+    const limitNum = Math.max(1, Math.min(100, Number(limit) || 10));
+    const offset = (pageNum - 1) * limitNum;
+
     let broadcasts: any[] = [];
+    let totalCount = 0;
+
     try {
-      broadcasts = await this.prisma.$queryRawUnsafe(`
-        SELECT * FROM newsletter_broadcasts ORDER BY created_at DESC;
-      `);
+      if (isPaginated) {
+        const [rows, countRes] = (await Promise.all([
+          this.prisma.$queryRawUnsafe<any[]>(`
+            SELECT * FROM newsletter_broadcasts ORDER BY created_at DESC LIMIT ${limitNum} OFFSET ${offset};
+          `),
+          this.prisma.$queryRawUnsafe<any[]>(`
+            SELECT COUNT(*)::int as count FROM newsletter_broadcasts;
+          `),
+        ])) as [any[], any[]];
+        broadcasts = rows || [];
+        totalCount = countRes && countRes[0] ? Number(countRes[0].count) : 0;
+      } else {
+        broadcasts = (await this.prisma.$queryRawUnsafe<any[]>(`
+          SELECT * FROM newsletter_broadcasts ORDER BY created_at DESC;
+        `)) || [];
+        totalCount = broadcasts ? broadcasts.length : 0;
+      }
     } catch (e) {
       broadcasts = [];
+      totalCount = 0;
     }
 
     const newsletters = (broadcasts || []).map((b) => ({
@@ -227,13 +249,24 @@ export class DonorsService {
       recipientsCount: Number(b.recipients_count ?? b.eligible_count ?? 0),
     }));
 
+    const totalPages = Math.ceil(totalCount / limitNum) || 1;
+
     return {
       newsletters,
+      data: newsletters,
       donorConsent: {
         emailNewsletter: user?.emailNewsletter ?? true,
         email: user?.email,
         fullName: user?.fullName,
         donationTier: user?.donationTier ?? 'SUPPORTER',
+      },
+      pagination: {
+        total: totalCount,
+        page: pageNum,
+        limit: limitNum,
+        totalPages,
+        hasNextPage: pageNum < totalPages,
+        hasPreviousPage: pageNum > 1,
       },
     };
   }

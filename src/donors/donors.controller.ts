@@ -1,5 +1,5 @@
-import { Controller, Get, Put, Body, UseGuards, Request } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Controller, Get, Put, Body, UseGuards, Request, Query } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { DonorsService } from './donors.service';
 import { UpdateDonorDto } from './dto/update-donor.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -36,8 +36,16 @@ export class DonorsController {
   }
 
   @Get('newsletters')
-  @ApiOperation({ summary: 'Get published community announcements and newsletters for donor' })
-  async getNewsletters(@Request() req: any) {
-    return this.donorsService.getNewsletters(req.user.id);
+  @ApiOperation({ summary: 'Get published community announcements and newsletters for donor with optional pagination' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number (1-based)' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Number of items per page' })
+  async getNewsletters(
+    @Request() req: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const pageNum = page !== undefined ? parseInt(page, 10) : undefined;
+    const limitNum = limit !== undefined ? parseInt(limit, 10) : undefined;
+    return this.donorsService.getNewsletters(req.user.id, pageNum, limitNum);
   }
 }
