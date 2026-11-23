@@ -311,6 +311,7 @@ export class AdminService implements OnModuleInit {
           notes: r.notes,
           householdSize: r.householdSize,
           contactPhone: r.contactPhone,
+          documents: r.documents || [],
           createdAt: r.createdAt,
         })),
       },

@@ -762,6 +762,23 @@ export class AuthService implements OnModuleInit {
       throw new UnauthorizedException('Beneficiary portal access is disabled by administrator.');
     }
 
+    // Process and format attached documents (N documents supported)
+    const clientUploadedDocs = Array.isArray(body.documents)
+      ? body.documents
+      : Array.isArray(body.uploadedDocuments)
+      ? body.uploadedDocuments
+      : [];
+
+    const formattedDocs = clientUploadedDocs.map((doc: any, idx: number) => ({
+      id: doc.id || `doc-req-${Date.now()}-${idx}`,
+      name: doc.name || `Support Document ${idx + 1}`,
+      type: doc.type || 'Support Evidence Document',
+      size: doc.size || '120 KB',
+      uploadedAt: doc.uploadedAt || new Date().toISOString(),
+      status: 'VERIFIED',
+      dataUrl: doc.dataUrl || doc.url || null,
+    }));
+
     const req = await this.prisma.beneficiaryRequest.create({
       data: {
         userId: user.id,
@@ -774,8 +791,20 @@ export class AuthService implements OnModuleInit {
         householdSize: body.householdSize ? Number(body.householdSize) : 1,
         status: 'PENDING',
         assignedWorker: user.assignedAdvocate || null,
+        documents: formattedDocs,
       },
     });
+
+    // Also link documents to client's primary profile documents for Admin visibility
+    if (formattedDocs.length > 0) {
+      const existingUserDocs = Array.isArray(user.documents) ? (user.documents as any[]) : [];
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          documents: [...existingUserDocs, ...formattedDocs],
+        },
+      });
+    }
 
     return {
       statusCode: 201,
