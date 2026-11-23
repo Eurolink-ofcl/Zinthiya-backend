@@ -1526,6 +1526,11 @@ export class AdminService implements OnModuleInit {
       include: {
         beneficiaryRequests: {
           orderBy: { createdAt: 'desc' },
+          include: {
+            allocations: {
+              orderBy: { allocationDate: 'desc' },
+            },
+          },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -1549,6 +1554,11 @@ export class AdminService implements OnModuleInit {
       include: {
         beneficiaryRequests: {
           orderBy: { createdAt: 'desc' },
+          include: {
+            allocations: {
+              orderBy: { allocationDate: 'desc' },
+            },
+          },
         },
       },
     });
@@ -2349,6 +2359,8 @@ export class AdminService implements OnModuleInit {
               serviceType: true,
               urgency: true,
               status: true,
+              notes: true,
+              createdAt: true,
             },
           },
         },
@@ -2468,6 +2480,54 @@ export class AdminService implements OnModuleInit {
       throw new ConflictException('Allocated amount must be greater than £0.');
     }
 
+    const targetRequestId = requestId || body.beneficiaryRequestId || null;
+
+    if (targetRequestId) {
+      const targetReq = await this.prisma.beneficiaryRequest.findUnique({
+        where: { id: targetRequestId },
+        include: {
+          allocations: {
+            where: { status: { not: AllocationStatus.CANCELLED } },
+          },
+        },
+      });
+      if (!targetReq) {
+        throw new NotFoundException(`Beneficiary support request with ID ${targetRequestId} not found.`);
+      }
+      if (userId && targetReq.userId && targetReq.userId !== userId) {
+        throw new ConflictException(`The selected support request does not belong to the selected beneficiary.`);
+      }
+
+      // Auto-update request status if still PENDING
+      if (targetReq.status === RequestStatus.PENDING) {
+        await this.prisma.beneficiaryRequest.update({
+          where: { id: targetRequestId },
+          data: { status: RequestStatus.APPROVED },
+        });
+      }
+    } else if (userId && !description?.trim()) {
+      // General Beneficiary Support without a linked support request requires justification
+      throw new ConflictException('Grant purpose and allocation justification is required when allocating General Beneficiary Support.');
+    }
+
+    // Validate funding source availability if campaign is selected
+    if (campaignId) {
+      const targetCampaign = await this.prisma.campaign.findUnique({ where: { id: campaignId } });
+      if (targetCampaign) {
+        const campaignAllocs = await this.prisma.assistanceAllocation.aggregate({
+          where: { campaignId, status: { not: AllocationStatus.CANCELLED } },
+          _sum: { allocatedAmount: true },
+        });
+        const campaignUsed = Number(campaignAllocs._sum.allocatedAmount || 0);
+        const campaignAvailable = Number(targetCampaign.raisedAmount) - campaignUsed;
+        if (amt > campaignAvailable && campaignAvailable >= 0) {
+          throw new ConflictException(
+            `Allocated amount (£${amt.toFixed(2)}) exceeds available campaign funds in "${targetCampaign.title}" (£${campaignAvailable.toFixed(2)} available).`
+          );
+        }
+      }
+    }
+
     // Generate unique allocation reference
     const refCode = `ALL-${Date.now().toString(36).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
 
@@ -2487,7 +2547,7 @@ export class AdminService implements OnModuleInit {
         beneficiaryName,
         beneficiaryEmail: beneficiaryEmail || null,
         beneficiaryPhone: beneficiaryPhone || null,
-        requestId: requestId || null,
+        requestId: targetRequestId,
         campaignId: campaignId || null,
         fundSource: fundSource || 'General Relief Fund',
         assistanceType: safeAssistanceType,
@@ -2505,7 +2565,16 @@ export class AdminService implements OnModuleInit {
       include: {
         user: true,
         campaign: true,
-        request: true,
+        request: {
+          select: {
+            id: true,
+            serviceType: true,
+            urgency: true,
+            status: true,
+            notes: true,
+            createdAt: true,
+          },
+        },
       },
     });
 
