@@ -329,4 +329,20 @@ model NewsletterBroadcast {
   @@map("newsletter_broadcasts")
 }
 
+model NewsletterSubscriber {
+  id             String    @id @default(uuid())
+  email          String    @unique
+  fullName       String?   @map("full_name")
+  source         String    @default("WEBSITE_BANNER")
+  status         String    @default("ACTIVE")
+  generalConsent Boolean   @default(true)            @map("general_consent")
+  ipAddress      String?   @map("ip_address")
+  subscribedAt   DateTime  @default(now())           @map("subscribed_at")
+  unsubscribedAt DateTime?                           @map("unsubscribed_at")
+  updatedAt      DateTime  @updatedAt                @map("updated_at")
+
+  @@map("newsletter_subscribers")
+}
+
+
 

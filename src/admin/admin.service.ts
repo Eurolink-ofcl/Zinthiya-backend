@@ -36,6 +36,22 @@ export class AdminService implements OnModuleInit {
           created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         );
+
+        CREATE TABLE IF NOT EXISTS newsletter_subscribers (
+          id VARCHAR(64) PRIMARY KEY,
+          email VARCHAR(255) NOT NULL UNIQUE,
+          full_name VARCHAR(150),
+          source VARCHAR(50) DEFAULT 'WEBSITE_BANNER',
+          status VARCHAR(50) DEFAULT 'ACTIVE',
+          general_consent BOOLEAN DEFAULT TRUE,
+          ip_address VARCHAR(100),
+          subscribed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          unsubscribed_at TIMESTAMP WITH TIME ZONE,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_newsletter_subscribers_email ON newsletter_subscribers(email);
+        CREATE INDEX IF NOT EXISTS idx_newsletter_subscribers_status ON newsletter_subscribers(status);
       `);
 
       const existingCount: any = await this.prisma.$queryRawUnsafe(`
@@ -3910,9 +3926,48 @@ export class AdminService implements OnModuleInit {
       orderBy: { createdAt: 'desc' },
     });
 
-    const subscribers = donors.filter((d) => d.emailNewsletter);
+    let websiteSubscribers: any[] = [];
+    try {
+      websiteSubscribers = await this.prisma.$queryRawUnsafe(`
+        SELECT * FROM newsletter_subscribers ORDER BY subscribed_at DESC;
+      `);
+    } catch (e) {
+      websiteSubscribers = [];
+    }
+
+    const formattedWebsiteSubs = (websiteSubscribers || []).map((s) => ({
+      id: s.id,
+      fullName: s.full_name || 'Website Subscriber',
+      email: s.email,
+      donationTier: 'COMMUNITY',
+      type: 'WEBSITE',
+      source: s.source || 'WEBSITE_BANNER',
+      status: s.status,
+      emailNewsletter: s.status === 'ACTIVE',
+      smsAlerts: false,
+      postalUpdates: false,
+      createdAt: s.subscribed_at,
+    }));
+
+    const formattedDonors = donors.map((d) => ({
+      id: d.id,
+      fullName: d.fullName,
+      email: d.email,
+      donationTier: d.donationTier,
+      type: 'DONOR',
+      source: 'DONOR_REGISTRATION',
+      status: d.emailNewsletter ? 'ACTIVE' : 'OPTED_OUT',
+      emailNewsletter: d.emailNewsletter,
+      smsAlerts: d.smsAlerts,
+      postalUpdates: d.postalUpdates,
+      createdAt: d.createdAt,
+      totalDonated: d.totalDonated,
+    }));
+
+    const allSubscribers = [...formattedWebsiteSubs, ...formattedDonors];
+    const activeSubscribers = allSubscribers.filter((s) => s.emailNewsletter);
     const totalDonors = donors.length;
-    const consentRate = totalDonors > 0 ? (subscribers.length / totalDonors) * 100 : 100;
+    const consentRate = totalDonors > 0 ? (donors.filter((d) => d.emailNewsletter).length / totalDonors) * 100 : 100;
 
     let broadcasts: any[] = [];
     try {
@@ -3943,15 +3998,116 @@ export class AdminService implements OnModuleInit {
     }));
 
     return {
-      subscribers,
+      subscribers: allSubscribers,
+      websiteSubscribers: formattedWebsiteSubs,
+      donorSubscribers: formattedDonors,
       stats: {
-        totalSubscribers: subscribers.length,
-        totalAudience: totalDonors,
+        totalSubscribers: activeSubscribers.length,
+        websiteSubscribersCount: formattedWebsiteSubs.filter((s) => s.emailNewsletter).length,
+        donorSubscribersCount: formattedDonors.filter((d) => d.emailNewsletter).length,
+        totalAudience: totalDonors + formattedWebsiteSubs.length,
         consentRate: Math.round(consentRate),
         portalBroadcastsCount: broadcasts.length,
       },
       campaignsHistory,
     };
+  }
+
+  /**
+   * Public Newsletter Subscription (e.g. from Website Landing Page Banner)
+   */
+  async subscribeNewsletter(dto: { email: string; fullName?: string; source?: string }, clientIp?: string) {
+    await this.ensureNewsletterTable();
+
+    const email = String(dto?.email || '').trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new BadRequestException('Please enter a valid email address.');
+    }
+
+    const fullName = dto?.fullName ? String(dto.fullName).trim() : null;
+    const source = dto?.source ? String(dto.source).trim() : 'WEBSITE_BANNER';
+    const ip = clientIp || null;
+
+    try {
+      const existing: any[] = await this.prisma.$queryRawUnsafe(
+        `SELECT * FROM newsletter_subscribers WHERE LOWER(email) = LOWER($1) LIMIT 1;`,
+        email,
+      );
+
+      if (existing && existing.length > 0) {
+        const sub = existing[0];
+        await this.prisma.$executeRawUnsafe(
+          `UPDATE newsletter_subscribers 
+           SET status = 'ACTIVE', 
+               full_name = COALESCE($1, full_name), 
+               source = COALESCE($2, source),
+               unsubscribed_at = NULL, 
+               updated_at = NOW() 
+           WHERE id = $3;`,
+          fullName,
+          source,
+          sub.id,
+        );
+        return {
+          success: true,
+          message: 'Welcome back! Your subscription to The Zinthiya Trust newsletter has been reactivated.',
+          subscriber: { id: sub.id, email, fullName: fullName || sub.full_name, status: 'ACTIVE' },
+        };
+      } else {
+        const id = 'sub-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6);
+        await this.prisma.$executeRawUnsafe(
+          `INSERT INTO newsletter_subscribers (id, email, full_name, source, status, general_consent, ip_address, subscribed_at, updated_at)
+           VALUES ($1, $2, $3, $4, 'ACTIVE', true, $5, NOW(), NOW());`,
+          id,
+          email,
+          fullName,
+          source,
+          ip,
+        );
+        return {
+          success: true,
+          message: 'Thank you for subscribing to The Zinthiya Trust community newsletter!',
+          subscriber: { id, email, fullName, status: 'ACTIVE' },
+        };
+      }
+    } catch (err: any) {
+      console.error('Subscription error:', err);
+      throw new BadRequestException('Failed to process newsletter subscription. Please try again.');
+    }
+  }
+
+  /**
+   * Public 1-Click Unsubscribe
+   */
+  async unsubscribeNewsletter(emailStr: string) {
+    await this.ensureNewsletterTable();
+
+    const email = String(emailStr || '').trim().toLowerCase();
+    if (!email) {
+      throw new BadRequestException('Email address is required to unsubscribe.');
+    }
+
+    try {
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE newsletter_subscribers 
+         SET status = 'UNSUBSCRIBED', unsubscribed_at = NOW(), updated_at = NOW() 
+         WHERE LOWER(email) = LOWER($1);`,
+        email,
+      );
+
+      await this.prisma.user.updateMany({
+        where: { email: { equals: email, mode: 'insensitive' } },
+        data: { emailNewsletter: false },
+      });
+
+      return {
+        success: true,
+        message: 'You have been successfully unsubscribed from newsletter updates.',
+      };
+    } catch (err: any) {
+      console.error('Unsubscribe error:', err);
+      throw new BadRequestException('Failed to process unsubscribe request.');
+    }
   }
 
   async dispatchNewsletter(body: any) {
