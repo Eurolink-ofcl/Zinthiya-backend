@@ -36,7 +36,13 @@ export class AdminService implements OnModuleInit {
           created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         );
+      `);
+    } catch (e: any) {
+      console.warn('ensure newsletter_broadcasts table warning:', e?.message || e);
+    }
 
+    try {
+      await this.prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS newsletter_subscribers (
           id VARCHAR(64) PRIMARY KEY,
           email VARCHAR(255) NOT NULL UNIQUE,
@@ -49,10 +55,24 @@ export class AdminService implements OnModuleInit {
           unsubscribed_at TIMESTAMP WITH TIME ZONE,
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         );
+      `);
+    } catch (e: any) {
+      console.warn('ensure newsletter_subscribers table warning:', e?.message || e);
+    }
 
+    try {
+      await this.prisma.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS idx_newsletter_subscribers_email ON newsletter_subscribers(email);
+      `);
+      await this.prisma.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS idx_newsletter_subscribers_status ON newsletter_subscribers(status);
+      `);
+    } catch (e: any) {
+      // ignore index creation warnings
+    }
 
+    try {
+      await this.prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS contact_messages (
           id VARCHAR(64) PRIMARY KEY,
           full_name VARCHAR(150) NOT NULL,
@@ -64,11 +84,26 @@ export class AdminService implements OnModuleInit {
           created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         );
+      `);
+    } catch (e: any) {
+      console.warn('ensure contact_messages table warning:', e?.message || e);
+    }
 
+    try {
+      await this.prisma.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS idx_contact_messages_email ON contact_messages(email);
+      `);
+      await this.prisma.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS idx_contact_messages_status ON contact_messages(status);
+      `);
+      await this.prisma.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS idx_contact_messages_created_at ON contact_messages(created_at);
       `);
+    } catch (e: any) {
+      // ignore index creation warnings
+    }
+
+    try {
 
       const existingCount: any = await this.prisma.$queryRawUnsafe(`
         SELECT COUNT(*)::int as count FROM newsletter_broadcasts;
@@ -4044,42 +4079,38 @@ export class AdminService implements OnModuleInit {
     const source = dto?.source ? String(dto.source).trim() : 'WEBSITE_BANNER';
     const ip = clientIp || null;
 
+    const safeEmail = email.replace(/'/g, "''");
+    const safeName = fullName ? `'${fullName.replace(/'/g, "''")}'` : 'NULL';
+    const safeSource = `'${source.replace(/'/g, "''")}'`;
+    const safeIp = ip ? `'${ip.replace(/'/g, "''")}'` : 'NULL';
+
     try {
       const existing: any[] = await this.prisma.$queryRawUnsafe(
-        `SELECT * FROM newsletter_subscribers WHERE LOWER(email) = LOWER($1) LIMIT 1;`,
-        email,
+        `SELECT * FROM newsletter_subscribers WHERE LOWER(email) = LOWER('${safeEmail}') LIMIT 1;`,
       );
 
       if (existing && existing.length > 0) {
         const sub = existing[0];
-        await this.prisma.$executeRawUnsafe(
-          `UPDATE newsletter_subscribers 
-           SET status = 'ACTIVE', 
-               full_name = COALESCE($1, full_name), 
-               source = COALESCE($2, source),
-               unsubscribed_at = NULL, 
-               updated_at = NOW() 
-           WHERE id = $3;`,
-          fullName,
-          source,
-          sub.id,
-        );
+        await this.prisma.$executeRawUnsafe(`
+          UPDATE newsletter_subscribers 
+          SET status = 'ACTIVE', 
+              full_name = COALESCE(${safeName}, full_name), 
+              source = COALESCE(${safeSource}, source),
+              unsubscribed_at = NULL, 
+              updated_at = NOW() 
+          WHERE id = '${sub.id}';
+        `);
         return {
           success: true,
           message: 'Welcome back! Your subscription to The Zinthiya Trust newsletter has been reactivated.',
           subscriber: { id: sub.id, email, fullName: fullName || sub.full_name, status: 'ACTIVE' },
         };
       } else {
-        const id = 'sub-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6);
-        await this.prisma.$executeRawUnsafe(
-          `INSERT INTO newsletter_subscribers (id, email, full_name, source, status, general_consent, ip_address, subscribed_at, updated_at)
-           VALUES ($1, $2, $3, $4, 'ACTIVE', true, $5, NOW(), NOW());`,
-          id,
-          email,
-          fullName,
-          source,
-          ip,
-        );
+        const id = 'sub-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
+        await this.prisma.$executeRawUnsafe(`
+          INSERT INTO newsletter_subscribers (id, email, full_name, source, status, general_consent, ip_address, subscribed_at, updated_at)
+          VALUES ('${id}', '${safeEmail}', ${safeName}, ${safeSource}, 'ACTIVE', true, ${safeIp}, NOW(), NOW());
+        `);
         return {
           success: true,
           message: 'Thank you for subscribing to The Zinthiya Trust community newsletter!',
@@ -4088,7 +4119,7 @@ export class AdminService implements OnModuleInit {
       }
     } catch (err: any) {
       console.error('Subscription error:', err);
-      throw new BadRequestException('Failed to process newsletter subscription. Please try again.');
+      throw new BadRequestException(`Failed to process newsletter subscription: ${err?.message || err}`);
     }
   }
 
@@ -4216,17 +4247,17 @@ export class AdminService implements OnModuleInit {
     const id = 'contact-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
     const ip = clientIp || null;
 
+    const safeFullName = `'${fullName.replace(/'/g, "''")}'`;
+    const safePhoneNumber = phoneNumber ? `'${phoneNumber.replace(/'/g, "''")}'` : 'NULL';
+    const safeEmail = `'${email.replace(/'/g, "''")}'`;
+    const safeMessage = `'${message.replace(/'/g, "''")}'`;
+    const safeIp = ip ? `'${ip.replace(/'/g, "''")}'` : 'NULL';
+
     try {
-      await this.prisma.$executeRawUnsafe(
-        `INSERT INTO contact_messages (id, full_name, phone_number, email, message, status, ip_address, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, 'NEW', $6, NOW(), NOW());`,
-        id,
-        fullName,
-        phoneNumber,
-        email,
-        message,
-        ip,
-      );
+      await this.prisma.$executeRawUnsafe(`
+        INSERT INTO contact_messages (id, full_name, phone_number, email, message, status, ip_address, created_at, updated_at)
+        VALUES ('${id}', ${safeFullName}, ${safePhoneNumber}, ${safeEmail}, ${safeMessage}, 'NEW', ${safeIp}, NOW(), NOW());
+      `);
 
       return {
         success: true,
@@ -4235,7 +4266,7 @@ export class AdminService implements OnModuleInit {
       };
     } catch (err: any) {
       console.error('Failed to save contact message:', err);
-      throw new BadRequestException('Unable to submit your contact request. Please try again.');
+      throw new BadRequestException(`Unable to submit your contact request: ${err?.message || err}`);
     }
   }
 
