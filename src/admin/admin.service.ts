@@ -52,6 +52,22 @@ export class AdminService implements OnModuleInit {
 
         CREATE INDEX IF NOT EXISTS idx_newsletter_subscribers_email ON newsletter_subscribers(email);
         CREATE INDEX IF NOT EXISTS idx_newsletter_subscribers_status ON newsletter_subscribers(status);
+
+        CREATE TABLE IF NOT EXISTS contact_messages (
+          id VARCHAR(64) PRIMARY KEY,
+          full_name VARCHAR(150) NOT NULL,
+          phone_number VARCHAR(50),
+          email VARCHAR(255) NOT NULL,
+          message TEXT NOT NULL,
+          status VARCHAR(50) DEFAULT 'NEW',
+          ip_address VARCHAR(100),
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_contact_messages_email ON contact_messages(email);
+        CREATE INDEX IF NOT EXISTS idx_contact_messages_status ON contact_messages(status);
+        CREATE INDEX IF NOT EXISTS idx_contact_messages_created_at ON contact_messages(created_at);
       `);
 
       const existingCount: any = await this.prisma.$queryRawUnsafe(`
@@ -4170,5 +4186,86 @@ export class AdminService implements OnModuleInit {
       eligibleCount,
       excludedCount,
     };
+  }
+
+  /**
+   * Public Contact Form Submission
+   */
+  async createContactMessage(
+    dto: { fullName: string; phoneNumber?: string; email: string; message: string },
+    clientIp?: string,
+  ) {
+    await this.ensureNewsletterTable();
+
+    const fullName = String(dto?.fullName || '').trim();
+    if (!fullName) {
+      throw new BadRequestException('Full name is required.');
+    }
+
+    const email = String(dto?.email || '').trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new BadRequestException('Please enter a valid email address.');
+    }
+
+    const phoneNumber = dto?.phoneNumber ? String(dto.phoneNumber).trim() : null;
+    const message = String(dto?.message || '').trim();
+    if (!message || message.length < 5) {
+      throw new BadRequestException('Message must be at least 5 characters long.');
+    }
+
+    const id = 'contact-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
+    const ip = clientIp || null;
+
+    try {
+      await this.prisma.$executeRawUnsafe(
+        `INSERT INTO contact_messages (id, full_name, phone_number, email, message, status, ip_address, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, 'NEW', $6, NOW(), NOW());`,
+        id,
+        fullName,
+        phoneNumber,
+        email,
+        message,
+        ip,
+      );
+
+      return {
+        success: true,
+        message: 'Thank you for contacting The Zinthiya Trust. Our team has received your message and will get back to you shortly.',
+        contactId: id,
+      };
+    } catch (err: any) {
+      console.error('Failed to save contact message:', err);
+      throw new BadRequestException('Unable to submit your contact request. Please try again.');
+    }
+  }
+
+  /**
+   * Retrieve Contact Messages for Admin Review
+   */
+  async getContactMessages() {
+    await this.ensureNewsletterTable();
+
+    try {
+      const messages: any[] = await this.prisma.$queryRawUnsafe(
+        `SELECT * FROM contact_messages ORDER BY created_at DESC;`,
+      );
+      return {
+        success: true,
+        messages: (messages || []).map((m) => ({
+          id: m.id,
+          fullName: m.full_name,
+          phoneNumber: m.phone_number,
+          email: m.email,
+          message: m.message,
+          status: m.status,
+          ipAddress: m.ip_address,
+          createdAt: m.created_at,
+          updatedAt: m.updated_at,
+        })),
+      };
+    } catch (err: any) {
+      console.error('Failed to get contact messages:', err);
+      return { success: true, messages: [] };
+    }
   }
 }
